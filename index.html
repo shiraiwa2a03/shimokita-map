@@ -73,6 +73,27 @@
     background: rgba(255,255,255,.18); color: var(--bar-ink); font-variant-numeric: tabular-nums;
   }
   #clock.debug { background: #e67e22; color: #fff; }
+  #btn-help {
+    pointer-events: auto; font: inherit; font-size: 12px; font-weight: 800; width: 22px; height: 22px; padding: 0;
+    border: 0; border-radius: 50%; background: rgba(255,255,255,.18); color: var(--bar-ink); margin-left: 4px;
+  }
+  .ctl { display: flex; gap: 6px; margin-top: 4px; }
+  .ctl select, .ctl button {
+    font: inherit; font-size: 12px; font-weight: 700; padding: 4px 8px; border-radius: 999px;
+    border: 1px solid var(--line); background: #fff; color: #333; -webkit-appearance: none; appearance: none;
+  }
+  .ctl select.b1 { background: var(--p1); } .ctl select.b2 { background: var(--p2); } .ctl select.b3 { background: var(--p3); }
+  .ctl select.b4 { background: var(--p4); } .ctl select.b5 { background: var(--p5); }
+  .ctl select.b1, .ctl select.b2, .ctl select.b4, .ctl select.b5 { color: #fff; border-color: transparent; }
+  .ctl select.b3 { color: #222; border-color: transparent; }
+  .ctl .go-btn.on { background: var(--route); color: #fff; border-color: transparent; }
+  .step { position: relative; grid-template-columns: 28px 1fr 32px !important; cursor: pointer; }
+  .edit-btn { align-self: center; width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line); background: #fff; color: #333; font-size: 15px; padding: 0; }
+  .step .warn, .walk .warn { color: #c0392b; }
+  .search { padding: 10px 16px 6px; position: sticky; top: -4px; background: var(--sheet-bg); z-index: 1; }
+  .search input { width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); }
+  .dbg textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 14px; margin-top: 10px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); }
+  .share { border-top: 6px solid #f3f3f5; margin-top: 8px; }
   .row.now { background: #fdecea; }
   .row.now .t::before { content: "● "; color: #e53935; }
   .dbg { padding: 12px 16px; font-size: 13px; }
@@ -203,7 +224,7 @@
   <svg id="overlay"></svg>
   <div id="pins"></div>
 </div>
-<header>下北沢にて'26 会場マップ <button id="clock" type="button" aria-label="時刻設定">12/5</button></header>
+<header><span>下北沢にて'26 会場マップ <button id="btn-help" type="button" aria-label="使い方">?</button></span> <button id="clock" type="button" aria-label="時刻設定">12/5</button></header>
 <div class="fab-row">
   <button class="fab primary" id="btn-route" type="button">ルート</button>
   <button class="fab" id="btn-free" type="button">空き時間</button>
@@ -223,7 +244,6 @@
 </section>
 
 <script src="timetable.js"></script>
-<script src="plan.js"></script>
 <script src="profiles.js"></script>
 <script>
 // 背景画像 = 地理院タイル(淡色) z18 を x0..x0+cols-1, y0..y0+rows-1 で結合したもの
@@ -273,28 +293,51 @@ const pinLayer = document.getElementById("pins");
 const svg = document.getElementById("overlay");
 const SVGNS = "http://www.w3.org/2000/svg";
 
-const venueToPin = {};
-const routeActs = new Set(ROUTE.map(r => r.venue + "|" + r.act));
+// ---- 見たい一覧とルート(端末ごとに localStorage に保存。共有リンクで受け渡し) ----
+const PRIORITY_LABEL = { 1: "絶対", 2: "被らなければ", 3: "出来れば", 4: "未見", 5: "気になる" };
+const PLAN_KEY = "shimonite-plan";
+let plan = { want: {}, route: [] }; // route: [{ venue, act, s?, e?, memo? }]
+let hadPlan = false;
+try {
+  const p = JSON.parse(localStorage.getItem(PLAN_KEY));
+  if (p && p.want && p.route) { plan = p; hadPlan = true; }
+} catch (_) {}
+function savePlan() { try { localStorage.setItem(PLAN_KEY, JSON.stringify(plan)); } catch (_) {} }
+const toMin = t => { const [h, m] = t.split(":"); return h * 60 + +m; };
+const findAct = (venue, name) => (TIMETABLE[venue] || []).find(a => a.n === name);
+let WANT = {}, ROUTE = [], routeActs = new Set();
+function derive() {
+  WANT = plan.want;
+  ROUTE = plan.route.map(r => {
+    const a = findAct(r.venue, r.act);
+    return { ...r, s: r.s || (a ? a.s : "00:00"), e: r.e || (a ? a.e : "00:00"), a };
+  }).sort((x, y) => toMin(x.s) - toMin(y.s) || toMin(x.e) - toMin(y.e));
+  routeActs = new Set(ROUTE.map(r => r.venue + "|" + r.act));
+}
+derive();
+const inRoute = (venue, name) => routeActs.has(venue + "|" + name);
+function toggleRoute(venue, name) {
+  const k = plan.route.findIndex(r => r.venue === venue && r.act === name);
+  if (k >= 0) plan.route.splice(k, 1); else plan.route.push({ venue, act: name });
+  planChanged();
+}
+function setWant(name, p) {
+  if (p) plan.want[name] = p; else delete plan.want[name];
+  planChanged();
+}
+function planChanged() { savePlan(); derive(); refreshPins(); if (sheetRefresh) sheetRefresh(); }
 
+const venueToPin = {};
 const pins = VENUES.map((v, i) => {
   const p = project(v.lat, v.lon);
   v.names.forEach(n => venueToPin[n] = i);
-  const acts = v.names.flatMap(n => TIMETABLE[n] || []);
-  const want = acts.some(a => WANT[a.n] && WANT[a.n] <= 4);
-  const steps = ROUTE.map((r, k) => v.names.includes(r.venue) ? k : -1).filter(k => k >= 0);
   const dot = document.createElement("div");
-  dot.className = "dot" + (steps.length ? " route" : want ? " want" : "");
   const label = document.createElement("div");
-  label.className = "label" + (steps.length || want ? "" : " dim");
-  label.dataset.head = esc(v.names.join(" / ")) +
-    (steps.length ? `<span class="steps">${steps.map(k => k + 1).join("·")}</span>` : "");
-  label.innerHTML = label.dataset.head;
   pinLayer.append(dot, label);
   const line = document.createElementNS(SVGNS, "line");
   line.setAttribute("stroke", "#555"); line.setAttribute("stroke-width", "1");
   svg.appendChild(line);
-  return { i, v, x: p.x, y: p.y, dot, label, line, steps, want, w: 0, h: 0, rect: null,
-           rank: steps.length ? 0 : want ? 1 : 2 };
+  return { i, v, x: p.x, y: p.y, dot, label, line, steps: [], want: false, w: 0, h: 0, rect: null, rank: 2 };
 });
 
 // ルート線(会場間を順に結ぶ)
@@ -306,13 +349,27 @@ routePath.setAttribute("stroke-opacity", ".4");
 routePath.setAttribute("stroke-linejoin", "round");
 routePath.setAttribute("stroke-linecap", "round");
 svg.insertBefore(routePath, svg.firstChild);
-const routePins = [];
-ROUTE.forEach(r => {
-  if (!r.venue) return;
-  const pi = venueToPin[r.venue];
-  if (routePins[routePins.length - 1] !== pi) routePins.push(pi);
-});
+let routePins = [];
 let showRoute = true;
+// 見たい/ルートの変更をピンの色・番号・ルート線に反映
+function refreshPins() {
+  for (const p of pins) {
+    const acts = p.v.names.flatMap(n => TIMETABLE[n] || []);
+    p.want = acts.some(a => WANT[a.n]);
+    p.steps = ROUTE.map((r, k) => p.v.names.includes(r.venue) ? k : -1).filter(k => k >= 0);
+    p.rank = p.steps.length ? 0 : p.want ? 1 : 2;
+    p.dot.className = "dot" + (p.steps.length ? " route" : p.want ? " want" : "");
+    p.label.className = "label" + (p.steps.length || p.want ? "" : " dim");
+    p.label.dataset.head = esc(p.v.names.join(" / ")) +
+      (p.steps.length ? `<span class="steps">${p.steps.map(k => k + 1).join("·")}</span>` : "");
+  }
+  routePins = [];
+  for (const r of ROUTE) {
+    const pi = venueToPin[r.venue];
+    if (pi != null && routePins[routePins.length - 1] !== pi) routePins.push(pi);
+  }
+  if (typeof refreshLive === "function" && clockBtn) refreshLive();
+}
 
 // ---- 現在時刻(12/5 の何分か)。デバッグ時は設定時刻から実時間で進む ----
 const FEST_DATE = "2026-12-05";
@@ -334,7 +391,6 @@ function nowMin() {
   return j.getUTCHours() * 60 + j.getUTCMinutes() + j.getUTCSeconds() / 60;
 }
 const fmtMin = m => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(Math.floor(m % 60)).padStart(2, "0")}`;
-const toMin = t => { const [h, m] = t.split(":"); return h * 60 + +m; };
 
 // 会場の「今」と「次」
 function nowNext(venue, t) {
@@ -523,25 +579,39 @@ const sheet = document.getElementById("sheet");
 const sheetTitle = document.getElementById("sheet-title");
 const sheetSub = document.getElementById("sheet-sub");
 const sheetBody = document.getElementById("sheet-body");
-function openSheet(title, sub, html) {
+let sheetRefresh = null; // 見たい/ルートを変えたときに今のシートを描き直す関数
+function openSheet(title, sub, html, refresh) {
+  sheetRefresh = refresh || null;
   sheetTitle.textContent = title; sheetSub.textContent = sub; sheetBody.innerHTML = html;
   sheetBody.scrollTop = 0;
   sheet.classList.add("open"); sheet.setAttribute("aria-hidden", "false");
 }
-function closeSheet() { sheet.classList.remove("open"); sheet.setAttribute("aria-hidden", "true"); }
+function redraw(fn) { const st = sheetBody.scrollTop; fn(); sheetBody.scrollTop = st; }
+function closeSheet() { sheetRefresh = null; sheet.classList.remove("open"); sheet.setAttribute("aria-hidden", "true"); }
 document.getElementById("sheet-close").addEventListener("click", closeSheet);
 
 function badge(name) {
   const p = WANT[name];
   return p ? `<span class="badge b${p}">${PRIORITY_LABEL[p]}</span>` : "";
 }
-function actRow(venue, a) {
+// 優先度の選択とルート追加ボタン
+function ctl(venue, a) {
+  if (a.ev) return "";
+  const p = WANT[a.n] || "";
+  const opts = [`<option value="">☆ 見たい?</option>`].concat(
+    Object.entries(PRIORITY_LABEL).map(([k, l]) => `<option value="${k}"${+k === +p ? " selected" : ""}>${l}</option>`)).join("");
+  const on = inRoute(venue, a.n);
+  return `<span class="ctl"><select class="pri${p ? " b" + p : ""}" data-n="${esc(a.n)}" aria-label="優先度">${opts}</select>` +
+    `<button type="button" class="go-btn${on ? " on" : ""}" data-v="${esc(venue)}" data-n="${esc(a.n)}">${on ? "✓ ルート" : "＋ ルート"}</button></span>`;
+}
+function actRow(venue, a, extra) {
   const t = nowMin();
   const cls = ["row", a.c ? "comedy" : "", a.ev ? "ev" : "",
     t != null && toMin(a.s) <= t && t < toMin(a.e) ? "now" : "",
-    [...routeActs].some(k => k === venue + "|" + a.n || (k.startsWith(venue + "|") && k.includes(a.n))) ? "in-route" : ""].join(" ");
+    inRoute(venue, a.n) ? "in-route" : ""].join(" ");
   return `<div class="${cls}"><span class="t">${a.s}–${a.e}</span>` +
-    `<span class="n">${esc(a.n)}${badge(a.n)}${a.note ? `<span class="note">${esc(a.note)}</span>` : ""}${a.c || a.ev ? "" : profHtml(a.n)}</span></div>`;
+    `<span class="n">${esc(a.n)}${a.note ? `<span class="note">${esc(a.note)}</span>` : ""}` +
+    `${extra ? `<span class="note">${esc(extra)}</span>` : ""}${ctl(venue, a)}${a.c || a.ev ? "" : profHtml(a.n)}</span></div>`;
 }
 function profHtml(name) {
   const pr = (typeof PROFILES !== "undefined") && PROFILES[name];
@@ -554,14 +624,29 @@ function profHtml(name) {
     `<a href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener">▶ YouTube</a>` +
     (pr && pr.src ? `<a href="${esc(pr.src)}" target="_blank" rel="noopener">出典</a>` : "") + `</span>`;
 }
+// ルートの隙間(10分以上)を空き時間とする
+function freeWindows() {
+  const all = Object.values(TIMETABLE).flat().filter(a => !a.ev);
+  const dayS = Math.min(...all.map(a => toMin(a.s))), dayE = Math.max(...all.map(a => toMin(a.e)));
+  const ws = [];
+  let cur = dayS, prev = null;
+  for (const r of ROUTE) {
+    if (toMin(r.s) - cur >= 10) ws.push({ s: cur, e: toMin(r.s), prev, next: r });
+    if (toMin(r.e) > cur) { cur = toMin(r.e); prev = r; }
+  }
+  if (dayE - cur >= 10) ws.push({ s: cur, e: dayE, prev, next: null });
+  return ws;
+}
 function showFree() {
   let html = "";
-  for (const w of FREE_WINDOWS) {
-    const prev = [...ROUTE].reverse().find(r => r.venue && toMin(r.e) <= toMin(w.s) + 5);
-    const next = ROUTE.find(r => r.venue && toMin(r.s) >= toMin(w.e) - 5);
+  if (!ROUTE.length) html += `<div class="missed">ルートが空なので、終日が空き時間です。会場や「見たい一覧」で「＋ ルート」を押すと、その隙間だけを出します。</div>`;
+  for (const w of freeWindows()) {
+    const { prev, next } = w;
     const pv = prev && pins[venueToPin[prev.venue]], nv = next && pins[venueToPin[next.venue]];
-    html += `<div class="win-head">${w.s}–${w.e}<small>${esc(w.note)}` +
-      `${prev ? `　前: ${esc(prev.venue)}` : ""}${next ? ` → 次: ${esc(next.venue)}` : ""}</small></div>`;
+    const ws = fmtMin(w.s), we = fmtMin(w.e);
+    html += `<div class="win-head">${ws}–${we}<small>` +
+      `${prev ? `前: ${esc(prev.act)}(${esc(prev.venue)})` : "最初"}${next ? ` → 次: ${esc(next.act)}(${esc(next.venue)})` : " → 最後"}</small></div>`;
+    w.s = ws; w.e = we;
     const items = [];
     for (const [venue, acts] of Object.entries(TIMETABLE)) for (const a of acts) {
       if (a.c || a.ev) continue;
@@ -572,51 +657,183 @@ function showFree() {
       items.push({ venue, a, wk, d: (pv ? walkMin(pv.v, vp_.v) : 0) + (nv ? walkMin(vp_.v, nv.v) : 0) });
     }
     items.sort((x, y) => x.d - y.d || x.a.s.localeCompare(y.a.s));
-    html += items.map(({ venue, a, wk }) =>
-      `<div class="row"><span class="t">${a.s}–${a.e}</span><span class="n">${esc(a.n)}${badge(a.n)}` +
-      `<span class="note">${esc(venue)}・${esc(wk)}</span>${profHtml(a.n)}</span></div>`).join("");
+    html += items.map(({ venue, a, wk }) => actRow(venue, a, `${venue}${wk ? "・" + wk : ""}`)).join("");
   }
-  openSheet("空き時間に見られるアクト", "移動が近い順(前の会場から＋次の会場までの徒歩)", html);
+  openSheet("空き時間に見られるアクト", "ルートの隙間ごと。移動が近い順(前の会場から＋次の会場までの徒歩)", html, () => redraw(showFree));
 }
 function showVenue(pin) {
   const html = pin.v.names.map(n =>
     `<div class="venue-block">${pin.v.names.length > 1 ? `<div class="venue-name">${esc(n)}</div>` : ""}` +
     (TIMETABLE[n] || []).map(a => actRow(n, a)).join("") + `</div>`).join("");
-  openSheet(pin.v.names.join(" / "), pin.v.addr, html);
+  openSheet(pin.v.names.join(" / "), pin.v.addr, html, () => redraw(() => showVenue(pin)));
 }
 function showRouteList() {
-  let html = "", prev = null, n = 0;
+  let html = "", prev = null, prevR = null;
+  if (!ROUTE.length) html += `<div class="missed">ルートはまだ空です。地図の会場をタップするか、「見たい一覧」で検索して「＋ ルート」を押すと、ここに時間順で並びます。</div>`;
   ROUTE.forEach((r, k) => {
-    const pin = r.venue ? pins[venueToPin[r.venue]] : null;
-    if (pin && prev && pin !== prev) html += `<div class="walk">↓ 徒歩 約${walkMin(prev.v, pin.v)}分</div>`;
-    html += `<button class="step${pin ? "" : " rest"}" type="button" data-pin="${pin ? pin.i : ""}">` +
-      `<span class="num">${k + 1}</span><span><div class="t">${r.s}–${r.e}　${esc(r.venue || "")}</div>` +
-      `<div class="a">${esc(r.act)}${badge(r.act)}</div>${r.memo ? `<div class="m">${esc(r.memo)}</div>` : ""}</span></button>`;
+    const pin = pins[venueToPin[r.venue]] || null;
+    const warn = [];
+    if (pin && prev && pin !== prev) {
+      const wk = walkMin(prev.v, pin.v), gap = toMin(r.s) - toMin(prevR.e);
+      html += `<div class="walk">↓ 徒歩 約${wk}分${gap >= 0 && wk - gap >= 3 ? `<span class="warn"> 間は${gap}分しかない</span>` : ""}</div>`;
+    }
+    if (prevR && toMin(r.s) < toMin(prevR.e)) warn.push(`前と${toMin(prevR.e) - toMin(r.s)}分被り`);
+    if (!r.a) warn.push("タイムテーブルに見当たらない");
+    const custom = r.a && (r.s !== r.a.s || r.e !== r.a.e) ? `(本来 ${r.a.s}–${r.a.e})` : "";
+    html += `<div class="step" data-pin="${pin ? pin.i : ""}">` +
+      `<span class="num">${k + 1}</span><span><div class="t">${r.s}–${r.e}${custom}　${esc(r.venue)}</div>` +
+      `<div class="a">${esc(r.act)}${badge(r.act)}</div>${r.memo ? `<div class="m">${esc(r.memo)}</div>` : ""}` +
+      `${warn.length ? `<div class="m warn">${esc(warn.join(" / "))}</div>` : ""}</span>` +
+      `<button type="button" class="edit-btn" data-k="${k}" aria-label="編集">✎</button></div>`;
     if (pin) prev = pin;
+    if (!prevR || toMin(r.e) > toMin(prevR.e)) prevR = r;
   });
   // ルートに入らなかった見たいバンド
-  const inRoute = new Set(ROUTE.map(r => r.act));
+  const names = new Set(ROUTE.map(r => r.act));
   const missed = [];
   for (const [venue, acts] of Object.entries(TIMETABLE))
-    for (const a of acts) if (WANT[a.n] && WANT[a.n] <= 4 && !inRoute.has(a.n)) missed.push(`${a.n}(${venue} ${a.s})`);
+    for (const a of acts) if (WANT[a.n] && WANT[a.n] <= 4 && !names.has(a.n)) missed.push(`${a.n}(${venue} ${a.s})`);
   const absent = Object.keys(WANT).filter(n => !Object.values(TIMETABLE).some(l => l.some(a => a.n === n)));
-  if (missed.length) html += `<div class="missed">ルート外: ${esc(missed.join("、"))}</div>`;
+  if (missed.length) html += `<div class="missed">見たいけどルート外: ${esc(missed.join("、"))}</div>`;
   if (absent.length) html += `<div class="missed">タイムテーブルに無い: ${esc(absent.join("、"))}</div>`;
-  openSheet("巡回ルート案", "タップでその会場へ移動", html);
+  html += shareHtml();
+  openSheet("巡回ルート", "タップでその会場へ移動・✎で時間とメモを変更", html, () => redraw(showRouteList));
+}
+function showStepEdit(k) {
+  const r = ROUTE[k];
+  const html = `<div class="dbg">
+    <div style="font-weight:800">${esc(r.act)} <span class="note">${esc(r.venue)}${r.a ? ` 本来 ${r.a.s}–${r.a.e}` : ""}</span></div>
+    <p>途中参加・途中抜けするなら、実際に見る時間に変えてください。</p>
+    <div class="btns"><input type="time" id="ed-s" value="${r.s}" step="60"> – <input type="time" id="ed-e" value="${r.e}" step="60"></div>
+    <textarea id="ed-m" rows="3" placeholder="メモ(場所取り、途中抜けなど)">${esc(r.memo || "")}</textarea>
+    <div class="btns">
+      <button class="go" type="button" data-ed="save" data-k="${k}">保存</button>
+      <button type="button" data-ed="reset" data-k="${k}">時間を元に戻す</button>
+      <button type="button" data-ed="del" data-k="${k}">ルートから外す</button>
+      <button type="button" data-ed="back">戻る</button>
+    </div></div>`;
+  openSheet("ルートの編集", `${r.s}–${r.e}`, html);
+}
+function planEntry(r) { return plan.route.find(x => x.venue === r.venue && x.act === r.act); }
+const norm = t => t.normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+let wantQuery = "";
+function wantResults() {
+  const q = norm(wantQuery), rows = [];
+  for (const [venue, acts] of Object.entries(TIMETABLE))
+    for (const a of acts) {
+      if (a.ev) continue;
+      if (q ? norm(a.n).includes(q) : WANT[a.n]) rows.push({ venue, a });
+    }
+  rows.sort((x, y) => x.a.s.localeCompare(y.a.s) || (WANT[x.a.n] || 9) - (WANT[y.a.n] || 9));
+  if (!rows.length) return `<div class="missed">${q ? "見つかりません" : "まだありません。上の欄でバンド名を検索して、優先度(☆)を付けてください。会場をタップしても付けられます。"}</div>`;
+  return rows.slice(0, 80).map(({ venue, a }) => actRow(venue, a, venue)).join("");
 }
 function showWantList() {
-  const rows = [];
-  for (const [venue, acts] of Object.entries(TIMETABLE))
-    for (const a of acts) if (WANT[a.n]) rows.push({ venue, a });
-  rows.sort((x, y) => x.a.s.localeCompare(y.a.s) || WANT[x.a.n] - WANT[y.a.n]);
-  const html = rows.map(({ venue, a }) =>
-    `<div class="row${routeActs.has(venue + "|" + a.n) ? " in-route" : ""}"><span class="t">${a.s}–${a.e}</span>` +
-    `<span class="n">${esc(a.n)}${badge(a.n)}<span class="note">${esc(venue)}</span></span></div>`).join("");
-  openSheet("見たい一覧(時間順)", "青背景 = ルートに入っているもの", html);
+  const html = `<div class="search"><input type="search" id="want-q" placeholder="バンド名で検索(全${Object.values(TIMETABLE).flat().length}組)" value="${esc(wantQuery)}" autocomplete="off"></div>` +
+    `<div id="want-res">${wantResults()}</div>` + shareHtml();
+  openSheet("見たい一覧(時間順)", "☆で優先度、＋ ルートで巡回ルートに追加。青背景 = ルートに入っているもの", html,
+    () => { const el = document.getElementById("want-res"); if (el) redraw(() => el.innerHTML = wantResults()); });
+}
+
+// ---- 共有リンク(見たい一覧とルートを URL の # に入れる) ----
+const b64u = bytes => { let s = ""; for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode(...bytes.subarray(i, i + 8192)); return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); };
+const unb64u = t => Uint8Array.from(atob(t.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+const pipe = async (bytes, stream) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+async function encodePlan(pl) {
+  const json = JSON.stringify({ w: pl.want, r: pl.route.map(r => [r.venue, r.act, r.s || "", r.e || "", r.memo || ""]) });
+  const raw = new TextEncoder().encode(json);
+  if (window.CompressionStream) return "z" + b64u(await pipe(raw, new CompressionStream("deflate-raw")));
+  return "j" + b64u(raw);
+}
+async function decodePlan(code) {
+  let bytes = unb64u(code.slice(1));
+  if (code[0] === "z") bytes = await pipe(bytes, new DecompressionStream("deflate-raw"));
+  const d = JSON.parse(new TextDecoder().decode(bytes));
+  return { want: d.w || {}, route: (d.r || []).map(([venue, act, s, e, memo]) => {
+    const r = { venue, act }; if (s) r.s = s; if (e) r.e = e; if (memo) r.memo = memo; return r; }) };
+}
+function shareHtml() {
+  return `<div class="dbg share"><div class="btns">
+    <button class="go" type="button" data-share="link">共有リンクを作る</button>
+    <button type="button" data-share="clear">見たい一覧とルートを全部消す</button></div>
+    <p>リンクを開いた端末に、この見たい一覧とルートがそのまま入ります。別の端末への引き継ぎや、友だちとの共有に使えます。データはこの端末の中だけに保存され、どこにも送信されません。</p>
+    <div id="share-out"></div></div>`;
+}
+async function makeShareLink() {
+  const url = location.origin + location.pathname + "#p=" + await encodePlan(plan);
+  const out = document.getElementById("share-out");
+  if (navigator.share) { try { await navigator.share({ title: "下北沢にて'26 見たい一覧", url }); return; } catch (e) { if (e.name === "AbortError") return; } }
+  try { await navigator.clipboard.writeText(url); toast("共有リンクをコピーしました"); } catch (_) {}
+  if (out) out.innerHTML = `<textarea readonly rows="3">${esc(url)}</textarea>`;
+}
+async function importFromHash() {
+  const m = location.hash.match(/^#p=(.+)$/);
+  if (!m) return false;
+  history.replaceState(null, "", location.pathname + location.search);
+  try {
+    const pl = await decodePlan(m[1]);
+    const has = Object.keys(plan.want).length || plan.route.length;
+    if (has && !confirm(`共有リンクの内容(見たい ${Object.keys(pl.want).length}組・ルート ${pl.route.length}件)で、この端末の見たい一覧とルートを置き換えますか?`)) return true;
+    plan = pl; savePlan(); derive(); refreshPins();
+    toast(`見たい ${Object.keys(pl.want).length}組・ルート ${pl.route.length}件を読み込みました`);
+    showRouteList();
+  } catch (e) { toast("共有リンクを読み込めませんでした"); }
+  return true;
+}
+function showHelp() {
+  openSheet("使い方", "下北沢にて'26 (2026.12.5) 非公式の会場マップ", `<div class="dbg">
+    <p style="color:inherit;font-size:13px;line-height:1.7;margin:0">
+    ・地図の会場をタップ → その会場の出演表<br>
+    ・「☆ 見たい?」で優先度を付ける / 「＋ ルート」で巡回ルートに追加<br>
+    ・「見たい一覧」ではバンド名で検索できます<br>
+    ・「ルート」は追加したアクトを時間順に並べ、被りや移動時間の足りなさを表示。✎で途中参加・途中抜けの時間を変えられます<br>
+    ・「空き時間」はルートの隙間に見られるアクトを、移動が近い順に表示<br>
+    ・当日は会場ラベルに「● 今」と「次」のアクトが出ます。右下の◎で現在地<br>
+    ・入力した内容はこの端末にだけ保存されます。「共有リンクを作る」で別の端末や友だちに渡せます</p>
+    <div class="btns"><button class="go" type="button" data-help="want">見たいバンドを探す</button></div></div>`);
 }
 sheetBody.addEventListener("click", e => {
+  const go = e.target.closest(".go-btn");
+  if (go) { toggleRoute(go.dataset.v, go.dataset.n); return; }
+  const ed = e.target.closest(".edit-btn");
+  if (ed) { showStepEdit(+ed.dataset.k); return; }
+  const eb = e.target.closest("[data-ed]");
+  if (eb) {
+    const act = eb.dataset.ed;
+    if (act !== "back") {
+      const r = ROUTE[+eb.dataset.k], pe = planEntry(r);
+      if (act === "del") plan.route.splice(plan.route.indexOf(pe), 1);
+      if (act === "reset") { delete pe.s; delete pe.e; }
+      if (act === "save") {
+        const sv = document.getElementById("ed-s").value, ev = document.getElementById("ed-e").value;
+        const m = document.getElementById("ed-m").value.trim();
+        if (sv && ev && toMin(ev) <= toMin(sv)) { toast("終わりは始まりより後にしてください"); return; }
+        if (sv && (!r.a || sv !== r.a.s)) pe.s = sv; else delete pe.s;
+        if (ev && (!r.a || ev !== r.a.e)) pe.e = ev; else delete pe.e;
+        if (m) pe.memo = m; else delete pe.memo;
+      }
+      savePlan(); derive(); refreshPins();
+    }
+    showRouteList(); return;
+  }
+  const sh = e.target.closest("[data-share]");
+  if (sh) {
+    if (sh.dataset.share === "link") makeShareLink();
+    else if (confirm("この端末の見たい一覧とルートを全部消しますか?")) { plan = { want: {}, route: [] }; planChanged(); }
+    return;
+  }
+  if (e.target.closest("[data-help]")) { showWantList(); setTimeout(() => document.getElementById("want-q")?.focus(), 250); return; }
   const b = e.target.closest(".step");
   if (b && b.dataset.pin !== "") centerOn(pins[+b.dataset.pin], Math.max(s, 0.9));
+});
+sheetBody.addEventListener("change", e => {
+  const sel = e.target.closest("select.pri");
+  if (sel) setWant(sel.dataset.n, +sel.value || 0);
+});
+sheetBody.addEventListener("input", e => {
+  if (e.target.id !== "want-q") return;
+  wantQuery = e.target.value;
+  document.getElementById("want-res").innerHTML = wantResults();
 });
 document.getElementById("btn-route").addEventListener("click", showRouteList);
 document.getElementById("btn-want").addEventListener("click", showWantList);
@@ -736,9 +953,11 @@ vp.addEventListener("wheel", e => {
 document.addEventListener("gesturestart", e => e.preventDefault());
 addEventListener("resize", () => { minS = Math.min(vp.clientWidth / IMG_W, vp.clientHeight / IMG_H); update(); });
 
-refreshLive();
+refreshPins();
 setInterval(refreshLive, 20000);
 if (img.complete) fitAll(); else img.addEventListener("load", fitAll);
+importFromHash().then(imported => { if (!imported && !hadPlan && !location.hash) showHelp(); });
+document.getElementById("btn-help").addEventListener("click", showHelp);
 if (location.hash === "#route") showRouteList();
 if (location.hash === "#free") showFree();
 if (location.hash.startsWith("#venue=")) {
