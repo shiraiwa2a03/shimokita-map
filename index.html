@@ -1,0 +1,750 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>下北沢にて'26 会場マップ</title>
+<style>
+  :root {
+    --bg: #e9e9e6;
+    --ink: #1d1d1f;
+    --sub: #6b6b70;
+    --pin: #8a8a90;
+    --pin-want: #e0352b;
+    --route: #1f6fd1;
+    --pin-ring: #ffffff;
+    --label-bg: rgba(255,255,255,.94);
+    --bar-bg: rgba(20,20,22,.9);
+    --bar-ink: #fff;
+    --sheet-bg: #ffffff;
+    --line: #e4e4e8;
+    --p1: #e0352b; --p2: #f08a24; --p3: #d9b400; --p4: #8a8a90; --p5: #2e9d5b;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior: none;
+  }
+  #viewport {
+    position: fixed; inset: 0;
+    touch-action: none; user-select: none; -webkit-user-select: none;
+    cursor: grab;
+  }
+  #viewport.dragging { cursor: grabbing; }
+  #map {
+    position: absolute; left: 0; top: 0;
+    transform-origin: 0 0; will-change: transform;
+    -webkit-user-drag: none; pointer-events: none;
+  }
+  #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+  #pins { position: absolute; inset: 0; pointer-events: none; }
+  .dot {
+    position: absolute; left: 0; top: 0; width: 12px; height: 12px; margin: -6px 0 0 -6px;
+    border-radius: 50%; background: var(--pin);
+    box-shadow: 0 0 0 2px var(--pin-ring), 0 1px 3px rgba(0,0,0,.4);
+  }
+  .dot.want { background: var(--pin-want); }
+  .dot.route { background: var(--route); width: 14px; height: 14px; margin: -7px 0 0 -7px; }
+  .label {
+    position: absolute; left: 0; top: 0;
+    font-size: 11px; font-weight: 700; line-height: 1.25;
+    padding: 2px 5px; border-radius: 4px;
+    background: var(--label-bg); white-space: nowrap;
+    box-shadow: 0 1px 2px rgba(0,0,0,.25);
+  }
+  .label .steps { color: #fff; background: var(--route); margin-left: 4px; padding: 0 4px; border-radius: 3px; font-size: 10px; }
+  .label.dim { color: var(--sub); font-weight: 600; }
+  .live { display: block; font-size: 10px; font-weight: 600; color: #333; line-height: 1.3; }
+  .lives { display: block; margin-top: 2px; padding-top: 2px; border-top: 1px solid var(--line); }
+  .live .vn { color: var(--sub); margin-right: 3px; }
+  .live .an { display: inline-block; max-width: 9em; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+  .live .tm { color: var(--sub); font-variant-numeric: tabular-nums; margin-left: 3px; }
+  .live.now .an { color: #c0392b; font-weight: 800; }
+  .live.now::before { content: "● "; color: #e53935; }
+  .live.nx::before { content: "次 "; color: var(--sub); }
+  .live.gap { color: var(--sub); }
+  .live.mine .an { text-decoration: underline; text-decoration-color: var(--route); text-decoration-thickness: 2px; }
+  #clock {
+    pointer-events: auto; font: inherit; font-size: 12px; font-weight: 700;
+    border: 0; border-radius: 999px; padding: 3px 10px;
+    background: rgba(255,255,255,.18); color: var(--bar-ink); font-variant-numeric: tabular-nums;
+  }
+  #clock.debug { background: #e67e22; color: #fff; }
+  .row.now { background: #fdecea; }
+  .row.now .t::before { content: "● "; color: #e53935; }
+  .dbg { padding: 12px 16px; font-size: 13px; }
+  .dbg input[type=time] { font: inherit; font-size: 20px; padding: 4px 8px; }
+  .dbg .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .dbg button { font: inherit; font-size: 13px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); background: #f6f6f8; color: #222; }
+  .dbg button.go { background: var(--route); color: #fff; border-color: transparent; }
+  .dbg p { color: var(--sub); font-size: 11px; margin: 10px 0 0; }
+  header {
+    position: fixed; left: 0; right: 0; top: 0;
+    padding: calc(env(safe-area-inset-top) + 8px) 16px 8px;
+    background: var(--bar-bg); color: var(--bar-ink);
+    font-size: 14px; font-weight: 700; letter-spacing: .02em;
+    display: flex; justify-content: space-between; align-items: baseline;
+    pointer-events: none;
+  }
+  header small { font-weight: 400; opacity: .75; font-size: 11px; }
+  #attr {
+    position: fixed; right: 4px; bottom: calc(env(safe-area-inset-bottom) + 58px);
+    font-size: 10px; padding: 2px 6px; border-radius: 3px;
+    background: rgba(255,255,255,.85); color: #333;
+  }
+  #attr a { color: inherit; }
+  .fab-row {
+    position: fixed; left: 12px; bottom: calc(env(safe-area-inset-bottom) + 12px);
+    display: flex; gap: 6px; right: 12px;
+  }
+  .fab {
+    font: inherit; font-size: 12px; font-weight: 700;
+    padding: 9px 11px; border: 0; border-radius: 999px; white-space: nowrap;
+    background: var(--bar-bg); color: var(--bar-ink);
+    box-shadow: 0 2px 6px rgba(0,0,0,.3);
+  }
+  .fab.primary { background: var(--route); }
+  .fab.on { background: #e53935; }
+  #btn-geo {
+    position: fixed; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 84px);
+    width: 44px; height: 44px; border-radius: 50%; border: 0; padding: 0;
+    background: #fff; color: #1a73e8; font-size: 22px; line-height: 44px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.3);
+  }
+  #btn-geo.active { background: #1a73e8; color: #fff; }
+  .me-acc { position: absolute; left: 0; top: 0; border-radius: 50%; background: rgba(26,115,232,.15); border: 1px solid rgba(26,115,232,.4); pointer-events: none; }
+  .me {
+    position: absolute; left: 0; top: 0; width: 16px; height: 16px; margin: -8px 0 0 -8px;
+    border-radius: 50%; background: #1a73e8; box-shadow: 0 0 0 3px #fff, 0 1px 4px rgba(0,0,0,.5);
+    pointer-events: none; z-index: 2;
+  }
+  .me::after {
+    content: ""; position: absolute; inset: -3px; border-radius: 50%;
+    border: 3px solid #1a73e8; animation: mepulse 1.6s ease-out infinite;
+  }
+  @keyframes mepulse { from { transform: scale(1); opacity: .9; } to { transform: scale(2.6); opacity: 0; } }
+  #toast {
+    position: fixed; left: 50%; top: calc(env(safe-area-inset-top) + 48px); transform: translateX(-50%);
+    background: rgba(0,0,0,.8); color: #fff; font-size: 12px; padding: 6px 12px; border-radius: 999px;
+    opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap;
+  }
+  #toast.show { opacity: 1; }
+
+  /* ボトムシート */
+  #sheet {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    max-height: 62vh; display: flex; flex-direction: column;
+    background: var(--sheet-bg); border-radius: 14px 14px 0 0;
+    box-shadow: 0 -4px 18px rgba(0,0,0,.25);
+    transform: translateY(105%); transition: transform .22s ease;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  #sheet.open { transform: none; }
+  #sheet-head {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 12px 16px 8px; border-bottom: 1px solid var(--line);
+  }
+  #sheet-title { font-size: 16px; font-weight: 800; }
+  #sheet-sub { font-size: 11px; color: var(--sub); margin-top: 2px; }
+  #sheet-close {
+    margin-left: auto; flex: none; border: 0; background: #eee; color: #333;
+    width: 30px; height: 30px; border-radius: 50%; font-size: 16px; line-height: 30px; padding: 0;
+  }
+  #sheet-body { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 4px 0 12px; }
+  .venue-block + .venue-block { border-top: 6px solid #f3f3f5; }
+  .venue-name { font-size: 12px; font-weight: 800; color: var(--sub); padding: 10px 16px 2px; }
+  .row {
+    display: grid; grid-template-columns: 84px 1fr; gap: 8px; align-items: baseline;
+    padding: 7px 16px; font-size: 14px;
+  }
+  .row .t { font-variant-numeric: tabular-nums; color: var(--sub); font-size: 12px; }
+  .row.comedy .n::before { content: "芸人 "; font-size: 10px; color: var(--sub); }
+  .row.ev .n { color: var(--sub); }
+  .row.in-route { background: #eaf2fd; }
+  .row .n { font-weight: 600; }
+  .badge {
+    display: inline-block; font-size: 10px; font-weight: 800; color: #fff;
+    padding: 1px 6px; border-radius: 999px; margin-left: 6px; vertical-align: 1px;
+  }
+  .b1 { background: var(--p1); } .b2 { background: var(--p2); } .b3 { background: var(--p3); color: #222; }
+  .b4 { background: var(--p4); } .b5 { background: var(--p5); }
+  .note { font-size: 10px; color: var(--sub); margin-left: 4px; }
+
+  .step {
+    display: grid; grid-template-columns: 28px 1fr; gap: 10px;
+    padding: 8px 16px; font-size: 14px; border: 0; background: none; width: 100%; text-align: left; font: inherit;
+    color: inherit;
+  }
+  .step .num {
+    width: 24px; height: 24px; border-radius: 50%; background: var(--route); color: #fff;
+    font-size: 12px; font-weight: 800; display: grid; place-items: center;
+  }
+  .step.rest .num { background: var(--pin); }
+  .step .t { font-size: 12px; color: var(--sub); font-variant-numeric: tabular-nums; }
+  .step .a { font-weight: 700; }
+  .step .m { font-size: 11px; color: var(--sub); margin-top: 2px; }
+  .walk { font-size: 11px; color: var(--sub); padding: 0 16px 0 54px; }
+  .prof { display: block; font-size: 12px; font-weight: 400; color: #444; line-height: 1.5; margin-top: 3px; }
+  .prof.none { color: var(--sub); }
+  .prof .warn { color: #b26a00; font-size: 10px; }
+  .links { display: block; margin-top: 3px; font-size: 11px; font-weight: 600; }
+  .links a { color: var(--route); text-decoration: none; margin-right: 10px; }
+  .win-head { padding: 12px 16px 4px; font-size: 13px; font-weight: 800; background: #f3f3f5; }
+  .win-head small { display: block; font-weight: 400; color: var(--sub); font-size: 11px; margin-top: 2px; }
+  .missed { padding: 10px 16px; font-size: 12px; color: var(--sub); border-top: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<div id="viewport">
+  <img id="map" src="map.jpg" alt="下北沢周辺地図" draggable="false">
+  <svg id="overlay"></svg>
+  <div id="pins"></div>
+</div>
+<header>下北沢にて'26 会場マップ <button id="clock" type="button" aria-label="時刻設定">12/5</button></header>
+<div class="fab-row">
+  <button class="fab primary" id="btn-route" type="button">ルート</button>
+  <button class="fab" id="btn-free" type="button">空き時間</button>
+  <button class="fab" id="btn-want" type="button">見たい一覧</button>
+  <button class="fab" id="btn-live" type="button">今/次</button>
+  <button class="fab" id="btn-reset" type="button">全体</button>
+</div>
+<button id="btn-geo" type="button" aria-label="現在地">◎</button>
+<div id="toast"></div>
+<div id="attr">出典：<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院 淡色地図</a></div>
+<section id="sheet" aria-hidden="true">
+  <div id="sheet-head">
+    <div><div id="sheet-title"></div><div id="sheet-sub"></div></div>
+    <button id="sheet-close" type="button" aria-label="閉じる">×</button>
+  </div>
+  <div id="sheet-body"></div>
+</section>
+
+<script src="timetable.js"></script>
+<script src="plan.js"></script>
+<script src="profiles.js"></script>
+<script>
+// 背景画像 = 地理院タイル(淡色) z18 を x0..x0+cols-1, y0..y0+rows-1 で結合したもの
+const TILE = { z: 18, x0: 232772, y0: 103240, cols: 6, rows: 10, size: 256 };
+
+// 同一建物の会場は1ピンにまとめる(names は TIMETABLE のキーと一致)
+const VENUES = [
+  { names: ["シャングリラ"], addr: "世田谷区北沢2-4-5", lat: 35.660599, lon: 139.668442 },
+  { names: ["CLUB251", "440"], addr: "世田谷区代沢5-29-15", lat: 35.65826, lon: 139.66748 },
+  { names: ["BASEMENTBAR", "THREE"], addr: "世田谷区代沢5-18-1", lat: 35.6567, lon: 139.667465 },
+  { names: ["LIVE HOLIC"], addr: "世田谷区北沢2-6-5", lat: 35.661591, lon: 139.669006 },
+  { names: ["Flowers Loft"], addr: "世田谷区北沢2-24-5", lat: 35.662239, lon: 139.667572 },
+  { names: ["mona records"], addr: "世田谷区北沢2-13-5", lat: 35.660446, lon: 139.667465 },
+  { names: ["CREAM"], addr: "世田谷区北沢2-33-7", lat: 35.663261, lon: 139.668655 },
+  { names: ["ReG"], addr: "世田谷区代沢5-30-10", lat: 35.658104, lon: 139.667984 },
+  { names: ["SHELTER"], addr: "世田谷区北沢2-6-10", lat: 35.661472, lon: 139.66954 },
+  { names: ["SPREAD"], addr: "世田谷区北沢2-12-6", lat: 35.660881, lon: 139.667587 },
+  { names: ["LIVE HAUS"], addr: "世田谷区北沢2-14-2", lat: 35.659477, lon: 139.66745 },
+  { names: ["MOSAiC"], addr: "世田谷区北沢2-2-14", lat: 35.659756, lon: 139.668625 },
+  { names: ["DaisyBar", "Laguna"], addr: "世田谷区北沢2-2-3", lat: 35.659512, lon: 139.668137 },
+  { names: ["ERA"], addr: "世田谷区北沢2-34-5", lat: 35.663372, lon: 139.668243 },
+  { names: ["WAVER"], addr: "世田谷区北沢2-14-13", lat: 35.66013, lon: 139.667969 },
+  { names: ["近松"], addr: "世田谷区北沢2-14-16", lat: 35.65979, lon: 139.667725 },
+  { names: ["近道", "おてまえ"], addr: "世田谷区北沢3-31-15", lat: 35.664639, lon: 139.667053 },
+  { names: ["下北線路街空き地"], addr: "世田谷区北沢2丁目(下北線路街)", lat: 35.662768, lon: 139.668989 },
+  { names: ["下北沢駅前広場"], addr: "下北沢駅前", lat: 35.6618, lon: 139.6672 },
+];
+
+// 緯度経度 → 背景画像上のピクセル座標(Webメルカトル)
+function project(lat, lon) {
+  const n = 2 ** TILE.z;
+  const x = (lon + 180) / 360 * n;
+  const y = (1 - Math.asinh(Math.tan(lat * Math.PI / 180)) / Math.PI) / 2 * n;
+  return { x: (x - TILE.x0) * TILE.size, y: (y - TILE.y0) * TILE.size };
+}
+// 2会場間の徒歩目安(直線距離×1.3 / 分速75m)
+function walkMin(a, b) {
+  const dy = (a.lat - b.lat) * 111000, dx = (a.lon - b.lon) * 111000 * Math.cos(a.lat * Math.PI / 180);
+  return Math.max(1, Math.round(Math.hypot(dx, dy) * 1.3 / 75));
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+const IMG_W = TILE.cols * TILE.size, IMG_H = TILE.rows * TILE.size;
+const vp = document.getElementById("viewport");
+const img = document.getElementById("map");
+const pinLayer = document.getElementById("pins");
+const svg = document.getElementById("overlay");
+const SVGNS = "http://www.w3.org/2000/svg";
+
+const venueToPin = {};
+const routeActs = new Set(ROUTE.map(r => r.venue + "|" + r.act));
+
+const pins = VENUES.map((v, i) => {
+  const p = project(v.lat, v.lon);
+  v.names.forEach(n => venueToPin[n] = i);
+  const acts = v.names.flatMap(n => TIMETABLE[n] || []);
+  const want = acts.some(a => WANT[a.n] && WANT[a.n] <= 4);
+  const steps = ROUTE.map((r, k) => v.names.includes(r.venue) ? k : -1).filter(k => k >= 0);
+  const dot = document.createElement("div");
+  dot.className = "dot" + (steps.length ? " route" : want ? " want" : "");
+  const label = document.createElement("div");
+  label.className = "label" + (steps.length || want ? "" : " dim");
+  label.dataset.head = esc(v.names.join(" / ")) +
+    (steps.length ? `<span class="steps">${steps.map(k => k + 1).join("·")}</span>` : "");
+  label.innerHTML = label.dataset.head;
+  pinLayer.append(dot, label);
+  const line = document.createElementNS(SVGNS, "line");
+  line.setAttribute("stroke", "#555"); line.setAttribute("stroke-width", "1");
+  svg.appendChild(line);
+  return { i, v, x: p.x, y: p.y, dot, label, line, steps, want, w: 0, h: 0, rect: null,
+           rank: steps.length ? 0 : want ? 1 : 2 };
+});
+
+// ルート線(会場間を順に結ぶ)
+const routePath = document.createElementNS(SVGNS, "polyline");
+routePath.setAttribute("fill", "none");
+routePath.setAttribute("stroke", "var(--route)");
+routePath.setAttribute("stroke-width", "3");
+routePath.setAttribute("stroke-opacity", ".4");
+routePath.setAttribute("stroke-linejoin", "round");
+routePath.setAttribute("stroke-linecap", "round");
+svg.insertBefore(routePath, svg.firstChild);
+const routePins = [];
+ROUTE.forEach(r => {
+  if (!r.venue) return;
+  const pi = venueToPin[r.venue];
+  if (routePins[routePins.length - 1] !== pi) routePins.push(pi);
+});
+let showRoute = true;
+
+// ---- 現在時刻(12/5 の何分か)。デバッグ時は設定時刻から実時間で進む ----
+const FEST_DATE = "2026-12-05";
+const DBG_KEY = "shimonite-debug-time";
+let dbg = null; // { base: 分, at: 設定した実時刻ms }
+try { dbg = JSON.parse(localStorage.getItem(DBG_KEY)) || null; } catch (_) {}
+{
+  const m = location.search.match(/[?&]t=(\d{1,2}):?(\d{2})/);
+  if (m) dbg = { base: +m[1] * 60 + +m[2], at: Date.now() };
+}
+function saveDbg() {
+  try { dbg ? localStorage.setItem(DBG_KEY, JSON.stringify(dbg)) : localStorage.removeItem(DBG_KEY); } catch (_) {}
+}
+// 当日なら分(0-1439+)、当日以外なら null
+function nowMin() {
+  if (dbg) return dbg.base + (Date.now() - dbg.at) / 60000;
+  const j = new Date(Date.now() + 9 * 3600e3); // JST
+  if (j.toISOString().slice(0, 10) !== FEST_DATE) return null;
+  return j.getUTCHours() * 60 + j.getUTCMinutes() + j.getUTCSeconds() / 60;
+}
+const fmtMin = m => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(Math.floor(m % 60)).padStart(2, "0")}`;
+const toMin = t => { const [h, m] = t.split(":"); return h * 60 + +m; };
+
+// 会場の「今」と「次」
+function nowNext(venue, t) {
+  const acts = TIMETABLE[venue] || [];
+  const cur = acts.find(a => toMin(a.s) <= t && t < toMin(a.e));
+  const nxt = acts.find(a => toMin(a.s) > t);
+  return { cur, nxt };
+}
+const isMine = (venue, a) => routeActs.has(venue + "|" + a.n) || !!WANT[a.n];
+function liveLine(cls, vn, venue, a) {
+  return `<span class="live ${cls}${isMine(venue, a) ? " mine" : ""}">${vn}` +
+    `<span class="an">${a.c ? "芸人 " : ""}${esc(a.n)}</span><span class="tm">${a.s}–${a.e}</span></span>`;
+}
+let showLive = true;
+try { showLive = localStorage.getItem("shimonite-live") !== "0"; } catch (_) {}
+function refreshLive() {
+  const t = nowMin();
+  liveBtn.classList.toggle("on", showLive);
+  clockBtn.textContent = t == null ? "12/5 当日のみ表示" : `12/5 ${fmtMin(t)}${dbg ? " DEBUG" : ""}`;
+  clockBtn.classList.toggle("debug", !!dbg);
+  for (const p of pins) {
+    let html = p.label.dataset.head;
+    if (t != null && showLive) {
+      html += `<span class="lives">`;
+      const multi = p.v.names.length > 1;
+      for (const n of p.v.names) {
+        const vn = multi ? `<span class="vn">${esc(n)}</span>` : "";
+        const { cur, nxt } = nowNext(n, t);
+        if (cur) html += liveLine("now", vn, n, cur);
+        if (nxt) html += liveLine("nx", vn, n, nxt);
+        if (!cur && !nxt) html += `<span class="live gap">${vn}終演</span>`;
+      }
+      html += `</span>`;
+    }
+    if (html !== p.label.innerHTML) { p.label.innerHTML = html; p.w = 0; }
+  }
+  update();
+}
+
+// ---- 現在地(要 HTTPS。file:// やhttpでは取れない) ----
+let me = null, geoWatch = null, followMe = false;
+const meAcc = document.createElement("div"); meAcc.className = "me-acc"; meAcc.style.display = "none";
+const meDot = document.createElement("div"); meDot.className = "me"; meDot.style.display = "none";
+pinLayer.prepend(meAcc); pinLayer.append(meDot);
+let toastTimer = 0;
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), 3000);
+}
+function onPos(pos) {
+  const { latitude: lat, longitude: lon, accuracy } = pos.coords;
+  const p = project(lat, lon);
+  const mpp = 156543.03392 * Math.cos(lat * Math.PI / 180) / 2 ** TILE.z; // 1ピクセルあたりのm
+  const inside = p.x >= 0 && p.y >= 0 && p.x <= IMG_W && p.y <= IMG_H;
+  const first = !me;
+  me = { x: p.x, y: p.y, accPx: Math.min(accuracy, 500) / mpp, lat, lon, inside };
+  if (!inside) { meDot.style.display = meAcc.style.display = "none"; if (first || followMe) toast("現在地は地図の範囲外です"); followMe = false; return; }
+  if (first || followMe) { centerOn(me, Math.max(s, 0.9)); followMe = false; }
+  update();
+}
+function onPosErr(err) {
+  const msg = { 1: "位置情報の利用が許可されていません", 2: "現在地を取得できません", 3: "現在地の取得がタイムアウトしました" }[err.code] || "現在地を取得できません";
+  toast(window.isSecureContext ? msg : "現在地は https で開いたときだけ使えます");
+  document.getElementById("btn-geo").classList.remove("active");
+  if (geoWatch != null) { navigator.geolocation.clearWatch(geoWatch); geoWatch = null; }
+}
+function startGeo() {
+  const btn = document.getElementById("btn-geo");
+  if (!navigator.geolocation) { toast("この端末では現在地を取得できません"); return; }
+  if (!window.isSecureContext) { toast("現在地は https で開いたときだけ使えます"); return; }
+  btn.classList.add("active");
+  if (geoWatch == null) {
+    toast("現在地を取得中…");
+    geoWatch = navigator.geolocation.watchPosition(onPos, onPosErr, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
+  } else if (me && me.inside) centerOn(me, Math.max(s, 0.9));
+  else followMe = true;
+}
+
+// ---- パン・ズーム(screen = image * s + t) ----
+let s = 1, tx = 0, ty = 0;
+let minS = 0.1;
+const MAX_S = 2.5;
+
+function clampView() {
+  const W = vp.clientWidth, H = vp.clientHeight;
+  s = Math.min(MAX_S, Math.max(minS, s));
+  const iw = IMG_W * s, ih = IMG_H * s;
+  tx = iw <= W ? (W - iw) / 2 : Math.min(0, Math.max(W - iw, tx));
+  ty = ih <= H ? (H - ih) / 2 : Math.min(0, Math.max(H - ih, ty));
+}
+
+// ラベル配置: 重なったら周囲の候補位置へずらし、引き出し線でつなぐ
+function overlaps(a, b) { return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h; }
+function layoutLabels() {
+  for (const p of pins) if (!p.w) { p.w = p.label.offsetWidth; p.h = p.label.offsetHeight; }
+  const pts = pins.map(p => ({ x: p.x * s + tx, y: p.y * s + ty }));
+  const dotRects = pts.map(q => ({ x: q.x - 8, y: q.y - 8, w: 16, h: 16 }));
+  const order = [...pins].sort((a, b) => a.rank - b.rank || a.y - b.y);
+  const placed = [];
+  for (const p of order) {
+    const q = pts[p.i], w = p.w, h = p.h;
+    const cands = [
+      [10, -h / 2], [-10 - w, -h / 2],
+    ];
+    for (let k = 1; k <= 9; k++) {
+      const d = k * 15;
+      cands.push([10 + d * .4, -h / 2 - d], [10 + d * .4, -h / 2 + d],
+                 [-10 - w - d * .4, -h / 2 - d], [-10 - w - d * .4, -h / 2 + d],
+                 [10 + d, -h / 2], [-10 - w - d, -h / 2],
+                 [-w / 2, -10 - h - d * .6], [-w / 2, 10 + d * .6]);
+    }
+    let best = null;
+    const W = vp.clientWidth, onScreen = q.x > 0 && q.x < W;
+    // 1周目は画面内に収まる位置だけ、2周目は画面外も許す
+    for (const strict of onScreen ? [true, false] : [false]) {
+      for (const [dx, dy] of cands) {
+        const r = { x: q.x + dx, y: q.y + dy, w, h };
+        if (strict && (r.x < 2 || r.x + w > W - 2)) continue;
+        if (placed.some(o => overlaps(r, o))) continue;
+        if (dotRects.some((d, j) => j !== p.i && overlaps(r, d))) continue;
+        best = r; break;
+      }
+      if (best) break;
+    }
+    best = best || { x: q.x + 10, y: q.y - h / 2, w, h };
+    placed.push(best);
+    p.rect = best;
+    p.label.style.transform = `translate3d(${best.x}px,${best.y}px,0)`;
+    p.dot.style.transform = `translate3d(${q.x}px,${q.y}px,0)`;
+    // ラベルがドットから離れたら引き出し線
+    const ax = Math.min(Math.max(q.x, best.x), best.x + w), ay = Math.min(Math.max(q.y, best.y), best.y + h);
+    const far = Math.hypot(ax - q.x, ay - q.y) > 14;
+    p.line.setAttribute("x1", q.x); p.line.setAttribute("y1", q.y);
+    p.line.setAttribute("x2", ax); p.line.setAttribute("y2", ay);
+    p.line.style.display = far ? "" : "none";
+  }
+  if (me) {
+    const q = { x: me.x * s + tx, y: me.y * s + ty }, r = me.accPx * s;
+    meDot.style.display = meAcc.style.display = "";
+    meDot.style.transform = `translate3d(${q.x}px,${q.y}px,0)`;
+    meAcc.style.width = meAcc.style.height = `${2 * r}px`;
+    meAcc.style.transform = `translate3d(${q.x - r}px,${q.y - r}px,0)`;
+  }
+  routePath.setAttribute("points", showRoute ? routePins.map(i => `${pts[i].x},${pts[i].y}`).join(" ") : "");
+}
+
+let raf = 0;
+function render() {
+  raf = 0;
+  img.style.transform = `translate3d(${tx}px,${ty}px,0) scale(${s})`;
+  layoutLabels();
+}
+function update() { clampView(); if (!raf) raf = requestAnimationFrame(render); }
+
+function zoomAt(sx, sy, factor) {
+  const ix = (sx - tx) / s, iy = (sy - ty) / s;
+  s = Math.min(MAX_S, Math.max(minS, s * factor));
+  tx = sx - ix * s; ty = sy - iy * s;
+  update();
+}
+function centerOn(pin, scale) {
+  const W = vp.clientWidth, H = vp.clientHeight;
+  if (scale) s = scale;
+  const sheetH = sheet.classList.contains("open") ? sheet.offsetHeight : 0;
+  tx = W / 2 - pin.x * s; ty = (H - sheetH) / 2 + 20 - pin.y * s;
+  update();
+}
+
+function fitAll() {
+  const W = vp.clientWidth, H = vp.clientHeight;
+  minS = Math.min(W / IMG_W, H / IMG_H);
+  const xs = pins.map(p => p.x), ys = pins.map(p => p.y);
+  const pad = { l: 40, r: 110, t: 64, b: 64 };
+  const bx0 = Math.min(...xs), bx1 = Math.max(...xs);
+  const by0 = Math.min(...ys), by1 = Math.max(...ys);
+  s = Math.min((W - pad.l - pad.r) / (bx1 - bx0), (H - pad.t - pad.b) / (by1 - by0));
+  s = Math.min(MAX_S, Math.max(minS, s));
+  tx = pad.l + ((W - pad.l - pad.r) - (bx1 - bx0) * s) / 2 - bx0 * s;
+  ty = pad.t + ((H - pad.t - pad.b) - (by1 - by0) * s) / 2 - by0 * s;
+  update();
+}
+
+// ---- ボトムシート ----
+const sheet = document.getElementById("sheet");
+const sheetTitle = document.getElementById("sheet-title");
+const sheetSub = document.getElementById("sheet-sub");
+const sheetBody = document.getElementById("sheet-body");
+function openSheet(title, sub, html) {
+  sheetTitle.textContent = title; sheetSub.textContent = sub; sheetBody.innerHTML = html;
+  sheetBody.scrollTop = 0;
+  sheet.classList.add("open"); sheet.setAttribute("aria-hidden", "false");
+}
+function closeSheet() { sheet.classList.remove("open"); sheet.setAttribute("aria-hidden", "true"); }
+document.getElementById("sheet-close").addEventListener("click", closeSheet);
+
+function badge(name) {
+  const p = WANT[name];
+  return p ? `<span class="badge b${p}">${PRIORITY_LABEL[p]}</span>` : "";
+}
+function actRow(venue, a) {
+  const t = nowMin();
+  const cls = ["row", a.c ? "comedy" : "", a.ev ? "ev" : "",
+    t != null && toMin(a.s) <= t && t < toMin(a.e) ? "now" : "",
+    [...routeActs].some(k => k === venue + "|" + a.n || (k.startsWith(venue + "|") && k.includes(a.n))) ? "in-route" : ""].join(" ");
+  return `<div class="${cls}"><span class="t">${a.s}–${a.e}</span>` +
+    `<span class="n">${esc(a.n)}${badge(a.n)}${a.note ? `<span class="note">${esc(a.note)}</span>` : ""}${a.c || a.ev ? "" : profHtml(a.n)}</span></div>`;
+}
+function profHtml(name) {
+  const pr = (typeof PROFILES !== "undefined") && PROFILES[name];
+  const q = encodeURIComponent(name.replace(/（.*?）/g, " ") + " バンド");
+  let h = "";
+  if (pr && pr.p) h = `<span class="prof">${esc(pr.p)}${pr.k ? ' <span class="warn">※出典なし・要確認</span>' : ""}${pr.u ? ' <span class="warn">※同名の別アーティストかも</span>' : ""}</span>`;
+  else if (pr) h = `<span class="prof none">ネットに情報がほぼ無し。音源で確認を</span>`;
+  const sq = encodeURIComponent(name.replace(/（.*?）/g, " ").trim());
+  return h + `<span class="links"><a href="https://open.spotify.com/search/${sq}" target="_blank" rel="noopener">♫ Spotify</a>` +
+    `<a href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener">▶ YouTube</a>` +
+    (pr && pr.src ? `<a href="${esc(pr.src)}" target="_blank" rel="noopener">出典</a>` : "") + `</span>`;
+}
+function showFree() {
+  let html = "";
+  for (const w of FREE_WINDOWS) {
+    const prev = [...ROUTE].reverse().find(r => r.venue && toMin(r.e) <= toMin(w.s) + 5);
+    const next = ROUTE.find(r => r.venue && toMin(r.s) >= toMin(w.e) - 5);
+    const pv = prev && pins[venueToPin[prev.venue]], nv = next && pins[venueToPin[next.venue]];
+    html += `<div class="win-head">${w.s}–${w.e}<small>${esc(w.note)}` +
+      `${prev ? `　前: ${esc(prev.venue)}` : ""}${next ? ` → 次: ${esc(next.venue)}` : ""}</small></div>`;
+    const items = [];
+    for (const [venue, acts] of Object.entries(TIMETABLE)) for (const a of acts) {
+      if (a.c || a.ev) continue;
+      const ov = Math.min(toMin(a.e), toMin(w.e)) - Math.max(toMin(a.s), toMin(w.s));
+      if (ov < 10) continue;
+      const vp_ = pins[venueToPin[venue]];
+      const wk = [pv ? `前から${walkMin(pv.v, vp_.v)}分` : "", nv ? `次へ${walkMin(vp_.v, nv.v)}分` : ""].filter(Boolean).join(" / ");
+      items.push({ venue, a, wk, d: (pv ? walkMin(pv.v, vp_.v) : 0) + (nv ? walkMin(vp_.v, nv.v) : 0) });
+    }
+    items.sort((x, y) => x.d - y.d || x.a.s.localeCompare(y.a.s));
+    html += items.map(({ venue, a, wk }) =>
+      `<div class="row"><span class="t">${a.s}–${a.e}</span><span class="n">${esc(a.n)}${badge(a.n)}` +
+      `<span class="note">${esc(venue)}・${esc(wk)}</span>${profHtml(a.n)}</span></div>`).join("");
+  }
+  openSheet("空き時間に見られるアクト", "移動が近い順(前の会場から＋次の会場までの徒歩)", html);
+}
+function showVenue(pin) {
+  const html = pin.v.names.map(n =>
+    `<div class="venue-block">${pin.v.names.length > 1 ? `<div class="venue-name">${esc(n)}</div>` : ""}` +
+    (TIMETABLE[n] || []).map(a => actRow(n, a)).join("") + `</div>`).join("");
+  openSheet(pin.v.names.join(" / "), pin.v.addr, html);
+}
+function showRouteList() {
+  let html = "", prev = null, n = 0;
+  ROUTE.forEach((r, k) => {
+    const pin = r.venue ? pins[venueToPin[r.venue]] : null;
+    if (pin && prev && pin !== prev) html += `<div class="walk">↓ 徒歩 約${walkMin(prev.v, pin.v)}分</div>`;
+    html += `<button class="step${pin ? "" : " rest"}" type="button" data-pin="${pin ? pin.i : ""}">` +
+      `<span class="num">${k + 1}</span><span><div class="t">${r.s}–${r.e}　${esc(r.venue || "")}</div>` +
+      `<div class="a">${esc(r.act)}${badge(r.act)}</div>${r.memo ? `<div class="m">${esc(r.memo)}</div>` : ""}</span></button>`;
+    if (pin) prev = pin;
+  });
+  // ルートに入らなかった見たいバンド
+  const inRoute = new Set(ROUTE.map(r => r.act));
+  const missed = [];
+  for (const [venue, acts] of Object.entries(TIMETABLE))
+    for (const a of acts) if (WANT[a.n] && WANT[a.n] <= 4 && !inRoute.has(a.n)) missed.push(`${a.n}(${venue} ${a.s})`);
+  const absent = Object.keys(WANT).filter(n => !Object.values(TIMETABLE).some(l => l.some(a => a.n === n)));
+  if (missed.length) html += `<div class="missed">ルート外: ${esc(missed.join("、"))}</div>`;
+  if (absent.length) html += `<div class="missed">タイムテーブルに無い: ${esc(absent.join("、"))}</div>`;
+  openSheet("巡回ルート案", "タップでその会場へ移動", html);
+}
+function showWantList() {
+  const rows = [];
+  for (const [venue, acts] of Object.entries(TIMETABLE))
+    for (const a of acts) if (WANT[a.n]) rows.push({ venue, a });
+  rows.sort((x, y) => x.a.s.localeCompare(y.a.s) || WANT[x.a.n] - WANT[y.a.n]);
+  const html = rows.map(({ venue, a }) =>
+    `<div class="row${routeActs.has(venue + "|" + a.n) ? " in-route" : ""}"><span class="t">${a.s}–${a.e}</span>` +
+    `<span class="n">${esc(a.n)}${badge(a.n)}<span class="note">${esc(venue)}</span></span></div>`).join("");
+  openSheet("見たい一覧(時間順)", "青背景 = ルートに入っているもの", html);
+}
+sheetBody.addEventListener("click", e => {
+  const b = e.target.closest(".step");
+  if (b && b.dataset.pin !== "") centerOn(pins[+b.dataset.pin], Math.max(s, 0.9));
+});
+document.getElementById("btn-route").addEventListener("click", showRouteList);
+document.getElementById("btn-want").addEventListener("click", showWantList);
+document.getElementById("btn-free").addEventListener("click", showFree);
+document.getElementById("btn-geo").addEventListener("click", startGeo);
+const clockBtn = document.getElementById("clock");
+const liveBtn = document.getElementById("btn-live");
+liveBtn.addEventListener("click", () => {
+  showLive = !showLive;
+  try { localStorage.setItem("shimonite-live", showLive ? "1" : "0"); } catch (_) {}
+  refreshLive();
+});
+function showDebug() {
+  const t = nowMin();
+  const v = fmtMin(t ?? 17 * 60 + 25);
+  openSheet("時刻設定(デバッグ)", "12/5 当日の任意の時刻として表示します", `<div class="dbg">
+    <input type="time" id="dbg-time" value="${v}" min="09:00" max="23:59" step="60">
+    <div class="btns">
+      <button class="go" type="button" data-act="set">この時刻にする</button>
+      <button type="button" data-act="-30">−30分</button>
+      <button type="button" data-act="-5">−5分</button>
+      <button type="button" data-act="5">＋5分</button>
+      <button type="button" data-act="30">＋30分</button>
+      <button type="button" data-act="real">実時間に戻す</button>
+    </div>
+    <p>設定した時刻から実時間と同じ速さで進みます。設定はこの端末に保存されます。URL に ?t=17:25 を付けて開いても設定できます。<br>
+    現在: ${dbg ? "デバッグ時刻" : "実時間"}(実時間では 12/5 当日以外は「今/次」を表示しません)</p>
+  </div>`);
+}
+clockBtn.addEventListener("click", showDebug);
+sheetBody.addEventListener("click", e => {
+  const b = e.target.closest(".dbg button");
+  if (!b) return;
+  const act = b.dataset.act;
+  if (act === "real") dbg = null;
+  else if (act === "set") {
+    const v = document.getElementById("dbg-time").value;
+    if (!v) return;
+    dbg = { base: toMin(v), at: Date.now() };
+  } else {
+    const base = nowMin() ?? toMin(document.getElementById("dbg-time").value || "12:00");
+    dbg = { base: Math.max(0, base + +act), at: Date.now() };
+  }
+  saveDbg(); refreshLive(); showDebug();
+});
+document.getElementById("btn-reset").addEventListener("click", () => { closeSheet(); fitAll(); });
+
+// ---- ポインタ(タッチ/マウス) ----
+const ptrs = new Map();
+let last = null;
+let lastTap = 0, downAt = null, moved = 0;
+
+function gesture() {
+  const pts = [...ptrs.values()];
+  if (pts.length === 1) return { x: pts[0].x, y: pts[0].y, d: 0 };
+  const [a, b] = pts;
+  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) };
+}
+function hitPin(x, y) {
+  let best = null, bd = 22;
+  for (const p of pins) {
+    const r = p.rect;
+    if (r && x >= r.x - 4 && x <= r.x + r.w + 4 && y >= r.y - 4 && y <= r.y + r.h + 4) return p;
+    const d = Math.hypot(p.x * s + tx - x, p.y * s + ty - y);
+    if (d < bd) { bd = d; best = p; }
+  }
+  return best;
+}
+
+vp.addEventListener("pointerdown", e => {
+  vp.setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  last = gesture();
+  vp.classList.add("dragging");
+  if (ptrs.size === 1) { downAt = { x: e.clientX, y: e.clientY }; moved = 0; }
+  else downAt = null;
+});
+
+vp.addEventListener("pointermove", e => {
+  if (!ptrs.has(e.pointerId)) return;
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  const g = gesture();
+  if (ptrs.size >= 2 && last.d > 0) {
+    const ix = (last.x - tx) / s, iy = (last.y - ty) / s;
+    s = Math.min(MAX_S, Math.max(minS, s * g.d / last.d));
+    tx = g.x - ix * s; ty = g.y - iy * s;
+  } else {
+    tx += g.x - last.x; ty += g.y - last.y;
+  }
+  if (downAt) moved = Math.max(moved, Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y));
+  last = g;
+  update();
+});
+
+function endPtr(e) {
+  const wasSingle = ptrs.size === 1 && downAt;
+  ptrs.delete(e.pointerId);
+  last = ptrs.size ? gesture() : null;
+  if (!ptrs.size) vp.classList.remove("dragging");
+  if (e.type !== "pointerup" || !wasSingle || moved > 8) { lastTap = 0; return; }
+  // タップ判定: ピンならタイムテーブル、何もない所のダブルタップは拡大
+  const p = hitPin(e.clientX, e.clientY);
+  if (p) { showVenue(p); lastTap = 0; return; }
+  const now = performance.now();
+  if (now - lastTap < 320) { zoomAt(e.clientX, e.clientY, 2); lastTap = 0; }
+  else lastTap = now;
+}
+vp.addEventListener("pointerup", endPtr);
+vp.addEventListener("pointercancel", endPtr);
+
+vp.addEventListener("wheel", e => {
+  e.preventDefault();
+  zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015));
+}, { passive: false });
+
+// iOS Safari のページ自体のピンチ拡大を抑止
+document.addEventListener("gesturestart", e => e.preventDefault());
+addEventListener("resize", () => { minS = Math.min(vp.clientWidth / IMG_W, vp.clientHeight / IMG_H); update(); });
+
+refreshLive();
+setInterval(refreshLive, 20000);
+if (img.complete) fitAll(); else img.addEventListener("load", fitAll);
+if (location.hash === "#route") showRouteList();
+if (location.hash === "#free") showFree();
+if (location.hash.startsWith("#venue=")) {
+  const p = pins[venueToPin[decodeURIComponent(location.hash.slice(7))]];
+  if (p) showVenue(p);
+}
+</script>
+</body>
+</html>
