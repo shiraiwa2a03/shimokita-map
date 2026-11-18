@@ -94,6 +94,50 @@
   .search input { width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); }
   .dbg textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 14px; margin-top: 10px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); }
   .share { border-top: 6px solid #f3f3f5; margin-top: 8px; }
+
+  /* アーティスト選択(全画面) */
+  #picker {
+    position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column;
+    background: var(--sheet-bg); transform: translateY(100%); transition: transform .22s ease; visibility: hidden;
+  }
+  #picker.open { transform: none; visibility: visible; }
+  #pk-head { padding: calc(env(safe-area-inset-top) + 10px) 12px 8px; border-bottom: 1px solid var(--line); }
+  .pk-top { display: flex; align-items: center; font-size: 16px; }
+  #pk-close { margin-left: auto; border: 0; background: #eee; color: #333; width: 30px; height: 30px; border-radius: 50%; font-size: 16px; padding: 0; }
+  #pk-q { width: 100%; box-sizing: border-box; margin-top: 8px; font: inherit; font-size: 16px; padding: 7px 12px; border-radius: 10px; border: 1px solid var(--line); }
+  .pk-chips { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+  .pk-chips .sep { flex: 1; }
+  .pk-chips button { font: inherit; font-size: 12px; font-weight: 700; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: #333; }
+  .pk-chips button.on { background: var(--bar-bg); color: var(--bar-ink); border-color: transparent; }
+  #pk-grid {
+    flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 10px 10px 16px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 10px; align-content: start;
+  }
+  .card { position: relative; font-size: 11px; line-height: 1.3; }
+  .card .ph {
+    position: relative; display: block; width: 100%; aspect-ratio: 1; border: 0; padding: 0; border-radius: 10px; overflow: hidden;
+    background: #ddd center / cover no-repeat; color: #fff; font-size: 28px; font-weight: 800;
+  }
+  .card .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .card .ph .ini { position: absolute; inset: 0; display: grid; place-items: center; background: #9aa0aa; }
+  .card.sel .ph { box-shadow: 0 0 0 3px var(--route); }
+  .card.sel .ph::after {
+    content: "✓"; position: absolute; top: 5px; right: 5px; width: 24px; height: 24px; border-radius: 50%;
+    background: var(--route); color: #fff; font-size: 15px; line-height: 24px; text-align: center; box-shadow: 0 0 0 2px #fff;
+  }
+  .card .nm { font-weight: 800; font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; }
+  .card .tv { color: var(--sub); font-size: 10px; margin-top: 1px; }
+  .card .tv .cm { color: #8e44ad; }
+  .card select { width: 100%; margin-top: 3px; font: inherit; font-size: 11px; font-weight: 700; padding: 3px 6px; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: #333; -webkit-appearance: none; appearance: none; }
+  .card select.b1 { background: var(--p1); } .card select.b2 { background: var(--p2); } .card select.b3 { background: var(--p3); }
+  .card select.b4 { background: var(--p4); } .card select.b5 { background: var(--p5); }
+  .card select.b1, .card select.b2, .card select.b4, .card select.b5 { color: #fff; border-color: transparent; }
+  .card select.b3 { color: #222; border-color: transparent; }
+  .pk-empty { grid-column: 1 / -1; color: var(--sub); font-size: 13px; padding: 20px 4px; }
+  #pk-foot { padding: 8px 12px calc(env(safe-area-inset-bottom) + 8px); border-top: 1px solid var(--line); text-align: center; }
+  #pk-foot .go { width: 100%; font: inherit; font-size: 14px; font-weight: 700; padding: 10px; border: 0; border-radius: 10px; background: var(--route); color: #fff; }
+  #pk-foot small { display: block; margin-top: 5px; font-size: 10px; color: var(--sub); }
+  #pk-foot small a { color: inherit; }
   .row.now { background: #fdecea; }
   .row.now .t::before { content: "● "; color: #e53935; }
   .dbg { padding: 12px 16px; font-size: 13px; }
@@ -235,6 +279,24 @@
 <button id="btn-geo" type="button" aria-label="現在地">◎</button>
 <div id="toast"></div>
 <div id="attr">出典：<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院 淡色地図</a></div>
+<section id="picker" aria-hidden="true">
+  <div id="pk-head">
+    <div class="pk-top"><b>アーティストから選ぶ</b><button id="pk-close" type="button" aria-label="閉じる">×</button></div>
+    <input type="search" id="pk-q" placeholder="名前で絞り込み" autocomplete="off">
+    <div class="pk-chips">
+      <button type="button" data-f="all" class="on">全員</button>
+      <button type="button" data-f="sel">選んだ <span id="pk-n">0</span></button>
+      <span class="sep"></span>
+      <button type="button" data-o="time" class="on">時間順</button>
+      <button type="button" data-o="name">名前順</button>
+    </div>
+  </div>
+  <div id="pk-grid"></div>
+  <div id="pk-foot">
+    <button type="button" id="pk-list" class="go">選んだバンドを時間順に見る・ルートに追加 →</button>
+    <small>写真: <a href="https://www.shimonite.com" target="_blank" rel="noopener">下北沢にて'26 公式サイト</a></small>
+  </div>
+</section>
 <section id="sheet" aria-hidden="true">
   <div id="sheet-head">
     <div><div id="sheet-title"></div><div id="sheet-sub"></div></div>
@@ -245,6 +307,7 @@
 
 <script src="timetable.js"></script>
 <script src="profiles.js"></script>
+<script src="images.js"></script>
 <script>
 // 背景画像 = 地理院タイル(淡色) z18 を x0..x0+cols-1, y0..y0+rows-1 で結合したもの
 const TILE = { z: 18, x0: 232772, y0: 103240, cols: 6, rows: 10, size: 256 };
@@ -729,11 +792,83 @@ function wantResults() {
   return rows.slice(0, 80).map(({ venue, a }) => actRow(venue, a, venue)).join("");
 }
 function showWantList() {
-  const html = `<div class="search"><input type="search" id="want-q" placeholder="バンド名で検索(全${Object.values(TIMETABLE).flat().length}組)" value="${esc(wantQuery)}" autocomplete="off"></div>` +
+  const html = `<div class="dbg" style="padding-bottom:0"><button class="go" type="button" data-picker="1" style="width:100%">写真の一覧から選ぶ</button></div>` +
+    `<div class="search"><input type="search" id="want-q" placeholder="バンド名で検索(全${Object.values(TIMETABLE).flat().length}組)" value="${esc(wantQuery)}" autocomplete="off"></div>` +
     `<div id="want-res">${wantResults()}</div>` + shareHtml();
   openSheet("見たい一覧(時間順)", "☆で優先度、＋ ルートで巡回ルートに追加。青背景 = ルートに入っているもの", html,
     () => { const el = document.getElementById("want-res"); if (el) redraw(() => el.innerHTML = wantResults()); });
 }
+
+// ---- アーティスト写真から選ぶ(全画面) ----
+const DEFAULT_PRI = 3; // タップで選んだときの優先度(出来れば)
+const ARTISTS = (() => {
+  const m = new Map();
+  for (const [venue, acts] of Object.entries(TIMETABLE)) for (const a of acts) {
+    if (a.ev) continue;
+    if (!m.has(a.n)) m.set(a.n, { n: a.n, c: !!a.c, slots: [] });
+    m.get(a.n).slots.push({ venue, s: a.s, e: a.e });
+  }
+  for (const x of m.values()) x.slots.sort((p, q) => p.s.localeCompare(q.s));
+  return [...m.values()];
+})();
+const picker = document.getElementById("picker"), pkGrid = document.getElementById("pk-grid");
+let pkFilter = "all", pkOrder = "time", pkQuery = "";
+const imgUrl = id => `https://static.wixstatic.com/media/${id}/v1/fill/w_240,h_240,al_c,q_80,enc_auto/a.jpg`;
+function cardHtml(x) {
+  const p = WANT[x.n] || 0, id = (typeof ARTIST_IMAGES !== "undefined") && ARTIST_IMAGES[x.n];
+  const ph = id ? `<img src="${imgUrl(id)}" alt="" loading="lazy" decoding="async">`
+               : `<span class="ini">${esc([...x.n.replace(/^THE ?/i, "")][0] || "?")}</span>`;
+  const opts = Object.entries(PRIORITY_LABEL).map(([k, l]) => `<option value="${k}"${+k === p ? " selected" : ""}>${l}</option>`).join("");
+  return `<div class="card${p ? " sel" : ""}" data-n="${esc(x.n)}">` +
+    `<button type="button" class="ph" aria-pressed="${p ? "true" : "false"}" aria-label="${esc(x.n)}">${ph}</button>` +
+    `<div class="nm">${esc(x.n)}</div>` +
+    `<div class="tv">${x.c ? `<span class="cm">芸人</span> ` : ""}${x.slots.map(t => `${t.s} ${esc(t.venue)}`).join("<br>")}</div>` +
+    (p ? `<select class="pri b${p}" data-n="${esc(x.n)}" aria-label="優先度"><option value="0">外す</option>${opts}</select>` : "") + `</div>`;
+}
+function renderPicker() {
+  const q = norm(pkQuery);
+  let list = ARTISTS.filter(x => (pkFilter === "all" || WANT[x.n]) && (!q || norm(x.n).includes(q)));
+  list.sort(pkOrder === "time" ? (a, b) => a.slots[0].s.localeCompare(b.slots[0].s) || a.n.localeCompare(b.n, "ja")
+                               : (a, b) => a.n.localeCompare(b.n, "ja"));
+  pkGrid.innerHTML = list.length ? list.map(cardHtml).join("")
+    : `<div class="pk-empty">${pkFilter === "sel" && !q ? "まだ選んでいません。「全員」から写真をタップして選んでください。" : "見つかりません"}</div>`;
+  document.getElementById("pk-n").textContent = ARTISTS.filter(x => WANT[x.n]).length;
+}
+function updateCard(name) {
+  const el = [...pkGrid.querySelectorAll(".card")].find(c => c.dataset.n === name);
+  const x = ARTISTS.find(a => a.n === name);
+  if (el && x) el.outerHTML = cardHtml(x);
+  document.getElementById("pk-n").textContent = ARTISTS.filter(x => WANT[x.n]).length;
+}
+function openPicker() {
+  closeSheet(); renderPicker();
+  picker.classList.add("open"); picker.setAttribute("aria-hidden", "false");
+}
+function closePicker() { picker.classList.remove("open"); picker.setAttribute("aria-hidden", "true"); }
+pkGrid.addEventListener("click", e => {
+  const ph = e.target.closest(".ph");
+  if (!ph) return;
+  const n = ph.closest(".card").dataset.n;
+  setWant(n, WANT[n] ? 0 : DEFAULT_PRI);
+  if (pkFilter === "sel") renderPicker(); else updateCard(n);
+});
+pkGrid.addEventListener("change", e => {
+  const sel = e.target.closest("select.pri");
+  if (!sel) return;
+  setWant(sel.dataset.n, +sel.value || 0);
+  if (pkFilter === "sel" && !+sel.value) renderPicker(); else updateCard(sel.dataset.n);
+});
+document.getElementById("pk-q").addEventListener("input", e => { pkQuery = e.target.value; renderPicker(); });
+picker.querySelector(".pk-chips").addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.f) pkFilter = b.dataset.f;
+  if (b.dataset.o) pkOrder = b.dataset.o;
+  picker.querySelectorAll(".pk-chips button").forEach(x => x.classList.toggle("on", x.dataset.f === pkFilter || x.dataset.o === pkOrder));
+  renderPicker(); pkGrid.scrollTop = 0;
+});
+document.getElementById("pk-close").addEventListener("click", closePicker);
+document.getElementById("pk-list").addEventListener("click", () => { closePicker(); wantQuery = ""; showWantList(); });
 
 // ---- 共有リンク(見たい一覧とルートを URL の # に入れる) ----
 const b64u = bytes => { let s = ""; for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode(...bytes.subarray(i, i + 8192)); return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); };
@@ -784,13 +919,13 @@ function showHelp() {
   openSheet("使い方", "下北沢にて'26 (2026.12.5) 非公式の会場マップ", `<div class="dbg">
     <p style="color:inherit;font-size:13px;line-height:1.7;margin:0">
     ・地図の会場をタップ → その会場の出演表<br>
-    ・「☆ 見たい?」で優先度を付ける / 「＋ ルート」で巡回ルートに追加<br>
-    ・「見たい一覧」ではバンド名で検索できます<br>
+    ・まず「見たいバンドを選ぶ」で、出演者の写真をタップして見たいバンドを選ぶ(優先度はあとで変えられます)<br>
+    ・「見たい一覧」で選んだバンドを時間順に確認し、「＋ ルート」で巡回ルートに追加<br>
     ・「ルート」は追加したアクトを時間順に並べ、被りや移動時間の足りなさを表示。✎で途中参加・途中抜けの時間を変えられます<br>
     ・「空き時間」はルートの隙間に見られるアクトを、移動が近い順に表示<br>
     ・当日は会場ラベルに「● 今」と「次」のアクトが出ます。右下の◎で現在地<br>
     ・入力した内容はこの端末にだけ保存されます。「共有リンクを作る」で別の端末や友だちに渡せます</p>
-    <div class="btns"><button class="go" type="button" data-help="want">見たいバンドを探す</button></div></div>`);
+    <div class="btns"><button class="go" type="button" data-help="want">見たいバンドを選ぶ</button></div></div>`);
 }
 sheetBody.addEventListener("click", e => {
   const go = e.target.closest(".go-btn");
@@ -822,7 +957,7 @@ sheetBody.addEventListener("click", e => {
     else if (confirm("この端末の見たい一覧とルートを全部消しますか?")) { plan = { want: {}, route: [] }; planChanged(); }
     return;
   }
-  if (e.target.closest("[data-help]")) { showWantList(); setTimeout(() => document.getElementById("want-q")?.focus(), 250); return; }
+  if (e.target.closest("[data-help]") || e.target.closest("[data-picker]")) { openPicker(); return; }
   const b = e.target.closest(".step");
   if (b && b.dataset.pin !== "") centerOn(pins[+b.dataset.pin], Math.max(s, 0.9));
 });
@@ -836,7 +971,7 @@ sheetBody.addEventListener("input", e => {
   document.getElementById("want-res").innerHTML = wantResults();
 });
 document.getElementById("btn-route").addEventListener("click", showRouteList);
-document.getElementById("btn-want").addEventListener("click", showWantList);
+document.getElementById("btn-want").addEventListener("click", () => Object.keys(WANT).length ? showWantList() : openPicker());
 document.getElementById("btn-free").addEventListener("click", showFree);
 document.getElementById("btn-geo").addEventListener("click", startGeo);
 const clockBtn = document.getElementById("clock");
