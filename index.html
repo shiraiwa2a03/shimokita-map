@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>下北沢にて'26 会場マップ</title>
+<title>サーキット会場マップ</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <style>
   :root {
     --bg: #e9e9e6;
@@ -34,13 +35,14 @@
     cursor: grab;
   }
   #viewport.dragging { cursor: grabbing; }
-  #map {
-    position: absolute; left: 0; top: 0;
-    transform-origin: 0 0; will-change: transform;
-    -webkit-user-drag: none; pointer-events: none;
+  #lmap { position: absolute; inset: 0; z-index: 0; background: var(--bg); }
+  #lmap .leaflet-tile-pane { filter: saturate(.9); }
+  #viewport.zooming #pins, #viewport.zooming #overlay { opacity: 0; }
+  #nomap {
+    display: none;
   }
-  #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
-  #pins { position: absolute; inset: 0; pointer-events: none; }
+  #overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 1; transition: opacity .1s; }
+  #pins { position: absolute; inset: 0; pointer-events: none; z-index: 2; transition: opacity .1s; }
   .dot {
     position: absolute; left: 0; top: 0; width: 12px; height: 12px; margin: -6px 0 0 -6px;
     border-radius: 50%; background: var(--pin);
@@ -226,7 +228,7 @@
     padding: 7px 16px; font-size: 14px;
   }
   .row .t { font-variant-numeric: tabular-nums; color: var(--sub); font-size: 12px; }
-  .row.comedy .n::before { content: "芸人 "; font-size: 10px; color: var(--sub); }
+  .row .cm { font-size: 10px; color: var(--sub); font-weight: 600; margin-right: 3px; }
   .row.ev .n { color: var(--sub); }
   .row.in-route { background: #eaf2fd; }
   .row .n { font-weight: 600; }
@@ -264,11 +266,11 @@
 </head>
 <body>
 <div id="viewport">
-  <img id="map" src="map.jpg" alt="下北沢周辺地図" draggable="false">
+  <div id="lmap"></div>
   <svg id="overlay"></svg>
   <div id="pins"></div>
 </div>
-<header><span>下北沢にて'26 会場マップ <button id="btn-help" type="button" aria-label="使い方">?</button></span> <button id="clock" type="button" aria-label="時刻設定">12/5</button></header>
+<header><span><span id="ev-title">会場マップ</span> <button id="btn-help" type="button" aria-label="使い方">?</button></span> <button id="clock" type="button" aria-label="時刻設定"></button></header>
 <div class="fab-row">
   <button class="fab primary" id="btn-route" type="button">ルート</button>
   <button class="fab" id="btn-free" type="button">空き時間</button>
@@ -294,7 +296,7 @@
   <div id="pk-grid"></div>
   <div id="pk-foot">
     <button type="button" id="pk-list" class="go">選んだバンドを時間順に見る・ルートに追加 →</button>
-    <small>写真: <a href="https://www.shimonite.com" target="_blank" rel="noopener">下北沢にて'26 公式サイト</a></small>
+    <small>写真: <a id="pk-credit" href="#" target="_blank" rel="noopener">公式サイト</a></small>
   </div>
 </section>
 <section id="sheet" aria-hidden="true">
@@ -305,43 +307,46 @@
   <div id="sheet-body"></div>
 </section>
 
-<script src="timetable.js"></script>
-<script src="profiles.js"></script>
-<script src="images.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="venues.js"></script>
+<script src="events/list.js"></script>
 <script>
-// 背景画像 = 地理院タイル(淡色) z18 を x0..x0+cols-1, y0..y0+rows-1 で結合したもの
-const TILE = { z: 18, x0: 232772, y0: 103240, cols: 6, rows: 10, size: 256 };
-
-// 同一建物の会場は1ピンにまとめる(names は TIMETABLE のキーと一致)
-const VENUES = [
-  { names: ["シャングリラ"], addr: "世田谷区北沢2-4-5", lat: 35.660599, lon: 139.668442 },
-  { names: ["CLUB251", "440"], addr: "世田谷区代沢5-29-15", lat: 35.65826, lon: 139.66748 },
-  { names: ["BASEMENTBAR", "THREE"], addr: "世田谷区代沢5-18-1", lat: 35.6567, lon: 139.667465 },
-  { names: ["LIVE HOLIC"], addr: "世田谷区北沢2-6-5", lat: 35.661591, lon: 139.669006 },
-  { names: ["Flowers Loft"], addr: "世田谷区北沢2-24-5", lat: 35.662239, lon: 139.667572 },
-  { names: ["mona records"], addr: "世田谷区北沢2-13-5", lat: 35.660446, lon: 139.667465 },
-  { names: ["CREAM"], addr: "世田谷区北沢2-33-7", lat: 35.663261, lon: 139.668655 },
-  { names: ["ReG"], addr: "世田谷区代沢5-30-10", lat: 35.658104, lon: 139.667984 },
-  { names: ["SHELTER"], addr: "世田谷区北沢2-6-10", lat: 35.661472, lon: 139.66954 },
-  { names: ["SPREAD"], addr: "世田谷区北沢2-12-6", lat: 35.660881, lon: 139.667587 },
-  { names: ["LIVE HAUS"], addr: "世田谷区北沢2-14-2", lat: 35.659477, lon: 139.66745 },
-  { names: ["MOSAiC"], addr: "世田谷区北沢2-2-14", lat: 35.659756, lon: 139.668625 },
-  { names: ["DaisyBar", "Laguna"], addr: "世田谷区北沢2-2-3", lat: 35.659512, lon: 139.668137 },
-  { names: ["ERA"], addr: "世田谷区北沢2-34-5", lat: 35.663372, lon: 139.668243 },
-  { names: ["WAVER"], addr: "世田谷区北沢2-14-13", lat: 35.66013, lon: 139.667969 },
-  { names: ["近松"], addr: "世田谷区北沢2-14-16", lat: 35.65979, lon: 139.667725 },
-  { names: ["近道", "おてまえ"], addr: "世田谷区北沢3-31-15", lat: 35.664639, lon: 139.667053 },
-  { names: ["下北線路街空き地"], addr: "世田谷区北沢2丁目(下北線路街)", lat: 35.662768, lon: 139.668989 },
-  { names: ["下北沢駅前広場"], addr: "下北沢駅前", lat: 35.6618, lon: 139.6672 },
-];
-
-// 緯度経度 → 背景画像上のピクセル座標(Webメルカトル)
-function project(lat, lon) {
-  const n = 2 ** TILE.z;
-  const x = (lon + 180) / 360 * n;
-  const y = (1 - Math.asinh(Math.tan(lat * Math.PI / 180)) / Math.PI) / 2 * n;
-  return { x: (x - TILE.x0) * TILE.size, y: (y - TILE.y0) * TILE.size };
+// ?e=イベントID のデータを読み込む(既定は一覧の先頭)
+(() => {
+  const m = location.search.match(/[?&]e=([a-z0-9_-]+)/);
+  const id = m ? m[1] : EVENT_LIST[0].id;
+  for (const f of ["event", "timetable", "profiles", "images"])
+    document.write(`<script src="events/${id}/${f}.js"><\/script>`);
+})();
+</script>
+<script>
+if (typeof EVENT === "undefined" || typeof TIMETABLE === "undefined") {
+  document.body.innerHTML = '<p style="padding:24px;font:16px sans-serif">イベントが見つかりません。<a href="./">トップへ</a></p>';
+  throw new Error("event not found");
 }
+document.title = `${EVENT.title} 会場マップ`;
+document.getElementById("ev-title").textContent = `${EVENT.title} 会場マップ`;
+document.getElementById("pk-credit").textContent = EVENT.imageCredit || "公式サイト";
+document.getElementById("pk-credit").href = EVENT.site || "#";
+const SHARE_BASE = location.origin + location.pathname + (EVENT.id === EVENT_LIST[0].id ? "" : `?e=${EVENT.id}`);
+// タイムテーブルの会場名を台帳(venues.js)とイベント独自会場に照らし合わせ、同じ建物はまとめる
+const vnorm = t => t.normalize("NFKC").toLowerCase().replace(/[\s・]/g, "");
+const VENUES = (() => {
+  const byAlias = new Map();
+  for (const v of VENUE_DB) for (const a of [v.name, ...(v.aliases || [])]) byAlias.set(vnorm(a), v);
+  const groups = new Map(), unknown = [];
+  for (const key of Object.keys(TIMETABLE)) {
+    const ex = (EVENT.extraVenues || []).find(v => v.name === key);
+    const v = ex || byAlias.get(vnorm(key));
+    if (!v) { unknown.push(key); continue; }
+    const g = (ex ? "extra:" + key : v.bldg || v.id);
+    if (!groups.has(g)) groups.set(g, { names: [], full: [], addr: v.addr.replace(/^東京都/, ""), lat: v.lat, lon: v.lon, approx: !!v.approx });
+    groups.get(g).names.push(key); groups.get(g).full.push(v.name || key);
+  }
+  if (unknown.length) setTimeout(() => toast(`地図に出せない会場: ${unknown.join("、")}`), 500);
+  return [...groups.values()];
+})();
+
 // 2会場間の徒歩目安(直線距離×1.3 / 分速75m)
 function walkMin(a, b) {
   const dy = (a.lat - b.lat) * 111000, dx = (a.lon - b.lon) * 111000 * Math.cos(a.lat * Math.PI / 180);
@@ -349,16 +354,14 @@ function walkMin(a, b) {
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-const IMG_W = TILE.cols * TILE.size, IMG_H = TILE.rows * TILE.size;
 const vp = document.getElementById("viewport");
-const img = document.getElementById("map");
 const pinLayer = document.getElementById("pins");
 const svg = document.getElementById("overlay");
 const SVGNS = "http://www.w3.org/2000/svg";
 
 // ---- 見たい一覧とルート(端末ごとに localStorage に保存。共有リンクで受け渡し) ----
 const PRIORITY_LABEL = { 1: "絶対", 2: "被らなければ", 3: "出来れば", 4: "未見", 5: "気になる" };
-const PLAN_KEY = "shimonite-plan";
+const PLAN_KEY = `${EVENT.storageKey || EVENT.id}-plan`;
 let plan = { want: {}, route: [] }; // route: [{ venue, act, s?, e?, memo? }]
 let hadPlan = false;
 try {
@@ -392,7 +395,6 @@ function planChanged() { savePlan(); derive(); refreshPins(); if (sheetRefresh) 
 
 const venueToPin = {};
 const pins = VENUES.map((v, i) => {
-  const p = project(v.lat, v.lon);
   v.names.forEach(n => venueToPin[n] = i);
   const dot = document.createElement("div");
   const label = document.createElement("div");
@@ -400,7 +402,7 @@ const pins = VENUES.map((v, i) => {
   const line = document.createElementNS(SVGNS, "line");
   line.setAttribute("stroke", "#555"); line.setAttribute("stroke-width", "1");
   svg.appendChild(line);
-  return { i, v, x: p.x, y: p.y, dot, label, line, steps: [], want: false, w: 0, h: 0, rect: null, rank: 2 };
+  return { i, v, lat: v.lat, lon: v.lon, sx: 0, sy: 0, dot, label, line, steps: [], want: false, w: 0, h: 0, rect: null, rank: 2 };
 });
 
 // ルート線(会場間を順に結ぶ)
@@ -434,9 +436,11 @@ function refreshPins() {
   if (typeof refreshLive === "function" && clockBtn) refreshLive();
 }
 
-// ---- 現在時刻(12/5 の何分か)。デバッグ時は設定時刻から実時間で進む ----
-const FEST_DATE = "2026-12-05";
-const DBG_KEY = "shimonite-debug-time";
+// ---- 現在時刻(当日の何分か)。デバッグ時は設定時刻から実時間で進む ----
+const FEST_DATE = EVENT.date;
+const DATE_SHORT = FEST_DATE.slice(5).replace(/^0/, "").replace("-0", "/").replace("-", "/");
+const COMEDY = EVENT.comedyLabel || "芸人";
+const DBG_KEY = `${EVENT.storageKey || EVENT.id}-debug-time`;
 let dbg = null; // { base: 分, at: 設定した実時刻ms }
 try { dbg = JSON.parse(localStorage.getItem(DBG_KEY)) || null; } catch (_) {}
 {
@@ -465,14 +469,14 @@ function nowNext(venue, t) {
 const isMine = (venue, a) => routeActs.has(venue + "|" + a.n) || !!WANT[a.n];
 function liveLine(cls, vn, venue, a) {
   return `<span class="live ${cls}${isMine(venue, a) ? " mine" : ""}">${vn}` +
-    `<span class="an">${a.c ? "芸人 " : ""}${esc(a.n)}</span><span class="tm">${a.s}–${a.e}</span></span>`;
+    `<span class="an">${a.c ? COMEDY + " " : ""}${esc(a.n)}</span><span class="tm">${a.s}–${a.e}</span></span>`;
 }
 let showLive = true;
-try { showLive = localStorage.getItem("shimonite-live") !== "0"; } catch (_) {}
+try { showLive = localStorage.getItem("map-live") !== "0"; } catch (_) {}
 function refreshLive() {
   const t = nowMin();
   liveBtn.classList.toggle("on", showLive);
-  clockBtn.textContent = t == null ? "12/5 当日のみ表示" : `12/5 ${fmtMin(t)}${dbg ? " DEBUG" : ""}`;
+  clockBtn.textContent = t == null ? `${DATE_SHORT} 当日のみ表示` : `${DATE_SHORT} ${fmtMin(t)}${dbg ? " DEBUG" : ""}`;
   clockBtn.classList.toggle("debug", !!dbg);
   for (const p of pins) {
     let html = p.label.dataset.head;
@@ -506,13 +510,11 @@ function toast(msg) {
 }
 function onPos(pos) {
   const { latitude: lat, longitude: lon, accuracy } = pos.coords;
-  const p = project(lat, lon);
-  const mpp = 156543.03392 * Math.cos(lat * Math.PI / 180) / 2 ** TILE.z; // 1ピクセルあたりのm
-  const inside = p.x >= 0 && p.y >= 0 && p.x <= IMG_W && p.y <= IMG_H;
+  const inside = AREA.contains([lat, lon]);
   const first = !me;
-  me = { x: p.x, y: p.y, accPx: Math.min(accuracy, 500) / mpp, lat, lon, inside };
+  me = { lat, lon, acc: Math.min(accuracy, 500), inside };
   if (!inside) { meDot.style.display = meAcc.style.display = "none"; if (first || followMe) toast("現在地は地図の範囲外です"); followMe = false; return; }
-  if (first || followMe) { centerOn(me, Math.max(s, 0.9)); followMe = false; }
+  if (first || followMe) { centerOn(me); followMe = false; }
   update();
 }
 function onPosErr(err) {
@@ -529,30 +531,39 @@ function startGeo() {
   if (geoWatch == null) {
     toast("現在地を取得中…");
     geoWatch = navigator.geolocation.watchPosition(onPos, onPosErr, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
-  } else if (me && me.inside) centerOn(me, Math.max(s, 0.9));
+  } else if (me && me.inside) centerOn(me);
   else followMe = true;
 }
 
-// ---- パン・ズーム(screen = image * s + t) ----
-let s = 1, tx = 0, ty = 0;
-let minS = 0.1;
-const MAX_S = 2.5;
-
-function clampView() {
-  const W = vp.clientWidth, H = vp.clientHeight;
-  s = Math.min(MAX_S, Math.max(minS, s));
-  const iw = IMG_W * s, ih = IMG_H * s;
-  tx = iw <= W ? (W - iw) / 2 : Math.min(0, Math.max(W - iw, tx));
-  ty = ih <= H ? (H - ih) / 2 : Math.min(0, Math.max(H - ih, ty));
-}
+// ---- 地図(Leaflet + 地理院タイル 淡色)。ピンとラベルは自前で画面座標に置く ----
+// 現在地を出す範囲 = 会場の範囲の周囲約1.5km
+const AREA = (() => {
+  const b = L.latLngBounds(VENUES.map(v => [v.lat, v.lon]));
+  const d = 0.014;
+  return L.latLngBounds([b.getSouth() - d, b.getWest() - d * 1.2], [b.getNorth() + d, b.getEast() + d * 1.2]);
+})();
+const map = L.map("lmap", {
+  zoomControl: false, attributionControl: false,
+  zoomSnap: 0, zoomDelta: 0.5, wheelPxPerZoomLevel: 90,
+  minZoom: 13, maxZoom: 20, maxBounds: AREA.pad(0.3), maxBoundsViscosity: 0.8,
+  bounceAtZoomLimits: false,
+});
+// 地理院の淡色は低ズームほど文字が大きいので、1段細かいタイルを半分の大きさで敷く(z18 が上限)
+L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png",
+  { tileSize: 128, zoomOffset: 1, minNativeZoom: 4, maxNativeZoom: 17, maxZoom: 20 }).addTo(map);
+const toScreen = (lat, lon) => map.latLngToContainerPoint([lat, lon]);
+map.on("move zoom resize viewreset", () => update());
+// ズームのアニメーション中はピンの位置が追従できないので隠す
+map.on("zoomanim", () => vp.classList.add("zooming"));
+map.on("zoomend", () => { vp.classList.remove("zooming"); update(); });
 
 // ラベル配置: 重なったら周囲の候補位置へずらし、引き出し線でつなぐ
 function overlaps(a, b) { return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h; }
 function layoutLabels() {
   for (const p of pins) if (!p.w) { p.w = p.label.offsetWidth; p.h = p.label.offsetHeight; }
-  const pts = pins.map(p => ({ x: p.x * s + tx, y: p.y * s + ty }));
+  const pts = pins.map(p => { const q = toScreen(p.lat, p.lon); p.sx = q.x; p.sy = q.y; return q; });
   const dotRects = pts.map(q => ({ x: q.x - 8, y: q.y - 8, w: 16, h: 16 }));
-  const order = [...pins].sort((a, b) => a.rank - b.rank || a.y - b.y);
+  const order = [...pins].sort((a, b) => a.rank - b.rank || a.sy - b.sy);
   const placed = [];
   for (const p of order) {
     const q = pts[p.i], w = p.w, h = p.h;
@@ -592,7 +603,8 @@ function layoutLabels() {
     p.line.style.display = far ? "" : "none";
   }
   if (me) {
-    const q = { x: me.x * s + tx, y: me.y * s + ty }, r = me.accPx * s;
+    const q = toScreen(me.lat, me.lon);
+    const r = me.acc / (156543.03392 * Math.cos(me.lat * Math.PI / 180) / 2 ** map.getZoom()); // m → px
     meDot.style.display = meAcc.style.display = "";
     meDot.style.transform = `translate3d(${q.x}px,${q.y}px,0)`;
     meAcc.style.width = meAcc.style.height = `${2 * r}px`;
@@ -602,39 +614,21 @@ function layoutLabels() {
 }
 
 let raf = 0;
-function render() {
-  raf = 0;
-  img.style.transform = `translate3d(${tx}px,${ty}px,0) scale(${s})`;
-  layoutLabels();
-}
-function update() { clampView(); if (!raf) raf = requestAnimationFrame(render); }
+function render() { raf = 0; layoutLabels(); }
+function update() { if (!raf) raf = requestAnimationFrame(render); }
 
-function zoomAt(sx, sy, factor) {
-  const ix = (sx - tx) / s, iy = (sy - ty) / s;
-  s = Math.min(MAX_S, Math.max(minS, s * factor));
-  tx = sx - ix * s; ty = sy - iy * s;
-  update();
-}
-function centerOn(pin, scale) {
-  const W = vp.clientWidth, H = vp.clientHeight;
-  if (scale) s = scale;
+// 指定地点を、シートに隠れない位置に寄せる
+function centerOn(pt, minZoom = 17.3) {
+  const z = Math.max(map.getZoom(), minZoom);
+  const H = vp.clientHeight;
   const sheetH = sheet.classList.contains("open") ? sheet.offsetHeight : 0;
-  tx = W / 2 - pin.x * s; ty = (H - sheetH) / 2 + 20 - pin.y * s;
-  update();
+  const targetY = (H - sheetH) / 2 + 20;
+  const px = map.project([pt.lat, pt.lon], z).add([0, H / 2 - targetY]);
+  map.setView(map.unproject(px, z), z, { animate: true });
 }
-
 function fitAll() {
-  const W = vp.clientWidth, H = vp.clientHeight;
-  minS = Math.min(W / IMG_W, H / IMG_H);
-  const xs = pins.map(p => p.x), ys = pins.map(p => p.y);
-  const pad = { l: 40, r: 110, t: 64, b: 64 };
-  const bx0 = Math.min(...xs), bx1 = Math.max(...xs);
-  const by0 = Math.min(...ys), by1 = Math.max(...ys);
-  s = Math.min((W - pad.l - pad.r) / (bx1 - bx0), (H - pad.t - pad.b) / (by1 - by0));
-  s = Math.min(MAX_S, Math.max(minS, s));
-  tx = pad.l + ((W - pad.l - pad.r) - (bx1 - bx0) * s) / 2 - bx0 * s;
-  ty = pad.t + ((H - pad.t - pad.b) - (by1 - by0) * s) / 2 - by0 * s;
-  update();
+  map.fitBounds(L.latLngBounds(VENUES.map(v => [v.lat, v.lon])),
+    { paddingTopLeft: [40, 64], paddingBottomRight: [110, 64], animate: false });
 }
 
 // ---- ボトムシート ----
@@ -673,7 +667,7 @@ function actRow(venue, a, extra) {
     t != null && toMin(a.s) <= t && t < toMin(a.e) ? "now" : "",
     inRoute(venue, a.n) ? "in-route" : ""].join(" ");
   return `<div class="${cls}"><span class="t">${a.s}–${a.e}</span>` +
-    `<span class="n">${esc(a.n)}${a.note ? `<span class="note">${esc(a.note)}</span>` : ""}` +
+    `<span class="n">${a.c ? `<span class="cm">${esc(COMEDY)}</span>` : ""}${esc(a.n)}${a.note ? `<span class="note">${esc(a.note)}</span>` : ""}` +
     `${extra ? `<span class="note">${esc(extra)}</span>` : ""}${ctl(venue, a)}${a.c || a.ev ? "" : profHtml(a.n)}</span></div>`;
 }
 function profHtml(name) {
@@ -728,7 +722,7 @@ function showVenue(pin) {
   const html = pin.v.names.map(n =>
     `<div class="venue-block">${pin.v.names.length > 1 ? `<div class="venue-name">${esc(n)}</div>` : ""}` +
     (TIMETABLE[n] || []).map(a => actRow(n, a)).join("") + `</div>`).join("");
-  openSheet(pin.v.names.join(" / "), pin.v.addr, html, () => redraw(() => showVenue(pin)));
+  openSheet(pin.v.names.join(" / "), `${pin.v.full.filter((f, k) => f !== pin.v.names[k]).join(" / ")}${pin.v.full.some((f, k) => f !== pin.v.names[k]) ? "・" : ""}${pin.v.addr}${pin.v.approx ? "(位置は概算)" : ""}`, html, () => redraw(() => showVenue(pin)));
 }
 function showRouteList() {
   let html = "", prev = null, prevR = null;
@@ -822,7 +816,7 @@ function cardHtml(x) {
   return `<div class="card${p ? " sel" : ""}" data-n="${esc(x.n)}">` +
     `<button type="button" class="ph" aria-pressed="${p ? "true" : "false"}" aria-label="${esc(x.n)}">${ph}</button>` +
     `<div class="nm">${esc(x.n)}</div>` +
-    `<div class="tv">${x.c ? `<span class="cm">芸人</span> ` : ""}${x.slots.map(t => `${t.s} ${esc(t.venue)}`).join("<br>")}</div>` +
+    `<div class="tv">${x.c ? `<span class="cm">${esc(COMEDY)}</span> ` : ""}${x.slots.map(t => `${t.s} ${esc(t.venue)}`).join("<br>")}</div>` +
     (p ? `<select class="pri b${p}" data-n="${esc(x.n)}" aria-label="優先度"><option value="0">外す</option>${opts}</select>` : "") + `</div>`;
 }
 function renderPicker() {
@@ -895,16 +889,16 @@ function shareHtml() {
     <div id="share-out"></div></div>`;
 }
 async function makeShareLink() {
-  const url = location.origin + location.pathname + "#p=" + await encodePlan(plan);
+  const url = SHARE_BASE + "#p=" + await encodePlan(plan);
   const out = document.getElementById("share-out");
-  if (navigator.share) { try { await navigator.share({ title: "下北沢にて'26 見たい一覧", url }); return; } catch (e) { if (e.name === "AbortError") return; } }
+  if (navigator.share) { try { await navigator.share({ title: `${EVENT.title} 見たい一覧`, url }); return; } catch (e) { if (e.name === "AbortError") return; } }
   try { await navigator.clipboard.writeText(url); toast("共有リンクをコピーしました"); } catch (_) {}
   if (out) out.innerHTML = `<textarea readonly rows="3">${esc(url)}</textarea>`;
 }
 async function importFromHash() {
   const m = location.hash.match(/^#p=(.+)$/);
   if (!m) return false;
-  history.replaceState(null, "", location.pathname + location.search);
+  history.replaceState(null, "", location.pathname + location.search.replace(/[?&]t=[^&]*/, "").replace(/^&/, "?"));
   try {
     const pl = await decodePlan(m[1]);
     const has = Object.keys(plan.want).length || plan.route.length;
@@ -916,7 +910,7 @@ async function importFromHash() {
   return true;
 }
 function showHelp() {
-  openSheet("使い方", "下北沢にて'26 (2026.12.5) 非公式の会場マップ", `<div class="dbg">
+  openSheet("使い方", `${EVENT.title} (${EVENT.dateLabel || EVENT.date}) 非公式の会場マップ`, `<div class="dbg">
     <p style="color:inherit;font-size:13px;line-height:1.7;margin:0">
     ・地図の会場をタップ → その会場の出演表<br>
     ・まず「見たいバンドを選ぶ」で、出演者の写真をタップして見たいバンドを選ぶ(優先度はあとで変えられます)<br>
@@ -959,7 +953,7 @@ sheetBody.addEventListener("click", e => {
   }
   if (e.target.closest("[data-help]") || e.target.closest("[data-picker]")) { openPicker(); return; }
   const b = e.target.closest(".step");
-  if (b && b.dataset.pin !== "") centerOn(pins[+b.dataset.pin], Math.max(s, 0.9));
+  if (b && b.dataset.pin !== "") centerOn(pins[+b.dataset.pin]);
 });
 sheetBody.addEventListener("change", e => {
   const sel = e.target.closest("select.pri");
@@ -978,13 +972,13 @@ const clockBtn = document.getElementById("clock");
 const liveBtn = document.getElementById("btn-live");
 liveBtn.addEventListener("click", () => {
   showLive = !showLive;
-  try { localStorage.setItem("shimonite-live", showLive ? "1" : "0"); } catch (_) {}
+  try { localStorage.setItem("map-live", showLive ? "1" : "0"); } catch (_) {}
   refreshLive();
 });
 function showDebug() {
   const t = nowMin();
   const v = fmtMin(t ?? 17 * 60 + 25);
-  openSheet("時刻設定(デバッグ)", "12/5 当日の任意の時刻として表示します", `<div class="dbg">
+  openSheet("時刻設定(デバッグ)", `${DATE_SHORT} 当日の任意の時刻として表示します`, `<div class="dbg">
     <input type="time" id="dbg-time" value="${v}" min="09:00" max="23:59" step="60">
     <div class="btns">
       <button class="go" type="button" data-act="set">この時刻にする</button>
@@ -995,7 +989,7 @@ function showDebug() {
       <button type="button" data-act="real">実時間に戻す</button>
     </div>
     <p>設定した時刻から実時間と同じ速さで進みます。設定はこの端末に保存されます。URL に ?t=17:25 を付けて開いても設定できます。<br>
-    現在: ${dbg ? "デバッグ時刻" : "実時間"}(実時間では 12/5 当日以外は「今/次」を表示しません)</p>
+    現在: ${dbg ? "デバッグ時刻" : "実時間"}(実時間では ${DATE_SHORT} 当日以外は「今/次」を表示しません)</p>
   </div>`);
 }
 clockBtn.addEventListener("click", showDebug);
@@ -1016,81 +1010,25 @@ sheetBody.addEventListener("click", e => {
 });
 document.getElementById("btn-reset").addEventListener("click", () => { closeSheet(); fitAll(); });
 
-// ---- ポインタ(タッチ/マウス) ----
-const ptrs = new Map();
-let last = null;
-let lastTap = 0, downAt = null, moved = 0;
-
-function gesture() {
-  const pts = [...ptrs.values()];
-  if (pts.length === 1) return { x: pts[0].x, y: pts[0].y, d: 0 };
-  const [a, b] = pts;
-  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) };
-}
+// ---- タップ: ピン(ラベル)ならその会場の出演表 ----
 function hitPin(x, y) {
   let best = null, bd = 22;
   for (const p of pins) {
     const r = p.rect;
     if (r && x >= r.x - 4 && x <= r.x + r.w + 4 && y >= r.y - 4 && y <= r.y + r.h + 4) return p;
-    const d = Math.hypot(p.x * s + tx - x, p.y * s + ty - y);
+    const d = Math.hypot(p.sx - x, p.sy - y);
     if (d < bd) { bd = d; best = p; }
   }
   return best;
 }
-
-vp.addEventListener("pointerdown", e => {
-  vp.setPointerCapture(e.pointerId);
-  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  last = gesture();
-  vp.classList.add("dragging");
-  if (ptrs.size === 1) { downAt = { x: e.clientX, y: e.clientY }; moved = 0; }
-  else downAt = null;
-});
-
-vp.addEventListener("pointermove", e => {
-  if (!ptrs.has(e.pointerId)) return;
-  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  const g = gesture();
-  if (ptrs.size >= 2 && last.d > 0) {
-    const ix = (last.x - tx) / s, iy = (last.y - ty) / s;
-    s = Math.min(MAX_S, Math.max(minS, s * g.d / last.d));
-    tx = g.x - ix * s; ty = g.y - iy * s;
-  } else {
-    tx += g.x - last.x; ty += g.y - last.y;
-  }
-  if (downAt) moved = Math.max(moved, Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y));
-  last = g;
-  update();
-});
-
-function endPtr(e) {
-  const wasSingle = ptrs.size === 1 && downAt;
-  ptrs.delete(e.pointerId);
-  last = ptrs.size ? gesture() : null;
-  if (!ptrs.size) vp.classList.remove("dragging");
-  if (e.type !== "pointerup" || !wasSingle || moved > 8) { lastTap = 0; return; }
-  // タップ判定: ピンならタイムテーブル、何もない所のダブルタップは拡大
-  const p = hitPin(e.clientX, e.clientY);
-  if (p) { showVenue(p); lastTap = 0; return; }
-  const now = performance.now();
-  if (now - lastTap < 320) { zoomAt(e.clientX, e.clientY, 2); lastTap = 0; }
-  else lastTap = now;
-}
-vp.addEventListener("pointerup", endPtr);
-vp.addEventListener("pointercancel", endPtr);
-
-vp.addEventListener("wheel", e => {
-  e.preventDefault();
-  zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015));
-}, { passive: false });
+map.on("click", e => { const p = hitPin(e.containerPoint.x, e.containerPoint.y); if (p) showVenue(p); });
 
 // iOS Safari のページ自体のピンチ拡大を抑止
 document.addEventListener("gesturestart", e => e.preventDefault());
-addEventListener("resize", () => { minS = Math.min(vp.clientWidth / IMG_W, vp.clientHeight / IMG_H); update(); });
 
 refreshPins();
 setInterval(refreshLive, 20000);
-if (img.complete) fitAll(); else img.addEventListener("load", fitAll);
+fitAll();
 importFromHash().then(imported => { if (!imported && !hadPlan && !location.hash) showHelp(); });
 document.getElementById("btn-help").addEventListener("click", showHelp);
 if (location.hash === "#route") showRouteList();
